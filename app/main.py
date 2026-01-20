@@ -10,9 +10,8 @@ def health():
 
 @app.get("/predictions/today")
 def get_predictions_today():
-    predictions = predict_today()
-    ranked = rank_predictions(predictions)
+    top_predictions = predict_today()
     return {
-        "count": len(ranked),
-        "predictions": ranked
+        "count": len(top_predictions),
+        "predictions": top_predictions
     }
