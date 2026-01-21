@@ -31,17 +31,6 @@ It ingests fixtures from the **API-Football** API into **MongoDB**, then generat
 
 > This repo currently focuses on “good enough” automation (scheduled ingestion + predictions API). There’s no GUI—configuration lives in `app/config/settings.py` and/or `.env`.
 
-## What it does
-
-- **Ingest fixtures** for a given date from API-Football → stores documents in MongoDB `fixtures` collection.
-- **Predict today’s matches** from stored fixtures:
-	- Home win probability
-	- Over 2.5 goals probability
-	- BTTS probability
-	- A simple “value score” placeholder
-- **Filter by league name** using a configurable allow-list (example: Premier League, UCL).
-- Expose results via REST endpoints.
-
 ## Project layout
 
 - `app/main.py` — FastAPI entrypoint
