@@ -1,4 +1,4 @@
-# Foo Ball Bot
+# Foo Ball Service
 
 ## What it does
 
@@ -21,7 +21,7 @@
   - Expected total goals in the match
 - **BTTS (Both Teams To Score)**: Probability that BOTH teams score at least 1 goal each
   - High probability = Expect both teams to find the net
-  - Based on weakest link principle (minimum scoring potential of both teams)
+  - Based on the weakest link principle (minimum scoring potential of both teams)
 - **Confidence Levels**:
   - HIGH: ≥ 75% probability (strong conviction)
   - MEDIUM: 60-74% probability (moderate conviction)
@@ -180,7 +180,7 @@ Collections currently used:
 When `team_stats` collection is empty (no historical data), the prediction service generates **seeded random stats** for each team based on their `team_id`. This ensures:
 
 - Predictions are **diverse** (not identical)
-- Predictions are **consistent** (same team always gets same stats until you populate real data)
+- Predictions are **consistent** (same team always gets the same stats until you populate real data)
 
 To populate real stats, you can:
 1. Build a backfill job that calls `compute_team_stats_from_fixtures()` (see `app/services/team_stats.py`)
@@ -218,7 +218,7 @@ Common causes:
 ## Development notes
 
 - Predictions are currently **rule-based** (`app/models/rule_based.py`).
-- ML dependencies exist in `requirements.txt` (e.g. scikit-learn, xgboost), but the default `/predictions/today` endpoint uses the rule-based approach.
+- ML dependencies exist in `requirements.txt` (e.g., scikit-learn, xgboost), but the default `/predictions/today` endpoint uses the rule-based approach.
 
 ## Roadmap ideas
 
