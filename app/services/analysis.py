@@ -52,6 +52,7 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     
     # Best value bets (positive value score + decent probability)
     best_value = df[
+        df['value_score'].notna() &
         (df['value_score'] > 0.15) &
         (df['home_win_probability'] >= 0.65)
     ].nlargest(5, 'value_score')[
