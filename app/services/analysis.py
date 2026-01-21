@@ -52,6 +52,7 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     
     # Best value bets (positive value score + decent probability)
     best_value = df[
+        df['value_score'].notna() &
         (df['value_score'] > 0.15) &
         (df['home_win_probability'] >= 0.65)
     ].nlargest(5, 'value_score')[
@@ -101,7 +102,7 @@ def get_top_picks(predictions: List[Dict], limit: int = 10) -> List[Dict]:
         df['home_win_probability'] * 0.4 +
         df['goals_probability'] * 0.3 +
         df['btts_probability'] * 0.2 +
-        df['value_score'].clip(lower=0) * 0.1  # Only positive value scores
+        df['value_score'].fillna(0).clip(lower=0) * 0.1  # Only positive value scores
     )
     
     top_picks = df.nlargest(limit, 'composite_score')[
