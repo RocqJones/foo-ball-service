@@ -5,10 +5,10 @@ def sigmoid(x: float) -> float:
 
 def predict_home_win(home_stats: dict, away_stats: dict) -> float:
     score = 2.0  # home advantage
-    score += (home_stats.get("form",0) - away_stats.get("form",0)) * 0.8
-    score += ((home_stats.get("goals_for",0) - home_stats.get("goals_against",0)) -
-              (away_stats.get("goals_for",0) - away_stats.get("goals_against",0))) * 0.6
-    score -= home_stats.get("missing_key_players",0) * 1.2
+    score += (home_stats.get("form", 0) - away_stats.get("form", 0)) * 0.8
+    score += ((home_stats.get("goals_for", 0) - home_stats.get("goals_against", 0)) -
+              (away_stats.get("goals_for", 0) - away_stats.get("goals_against", 0))) * 0.6
+    score -= home_stats.get("missing_key_players", 0) * 1.2
     return sigmoid(score)
 
 def predict_over_under(home_stats: dict, away_stats: dict, line: float = 2.5) -> float:
