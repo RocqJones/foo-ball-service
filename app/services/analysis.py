@@ -101,7 +101,7 @@ def get_top_picks(predictions: List[Dict], limit: int = 10) -> List[Dict]:
         df['home_win_probability'] * 0.4 +
         df['goals_probability'] * 0.3 +
         df['btts_probability'] * 0.2 +
-        df['value_score'].clip(lower=0) * 0.1  # Only positive value scores
+        df['value_score'].fillna(0).clip(lower=0) * 0.1  # Only positive value scores, treat missing as 0
     )
     
     top_picks = df.nlargest(limit, 'composite_score')[
