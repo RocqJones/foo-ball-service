@@ -3,7 +3,6 @@ from app.db.mongo import get_collection
 from app.models.rule_based import predict_home_win, predict_over_under, predict_btts
 from app.services.ranking import rank_predictions
 from app.config.settings import settings
-import math
 import random
 
 def predict_today():
