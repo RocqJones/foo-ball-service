@@ -25,9 +25,11 @@
 - **Confidence Levels**:
   - HIGH: ≥ 75% probability (strong conviction)
   - MEDIUM: 60-74% probability (moderate conviction)
-  - LOW: < 60% probability (uncertain)otball (soccer) data + predictions service.
+  - LOW: < 60% probability (uncertain)
 
-It ingests fixtures from the **API-Football** API into **MongoDB**, then generates s### Empty predictions
+It ingests fixtures from the **API-Football** API into **MongoDB**, then generates **rule-based predictions** for today’s matches and serves them via a **FastAPI** API.
+
+### Empty predictions
 
 Common causes:
 
@@ -35,7 +37,7 @@ Common causes:
 - Your `TRACKED_LEAGUES` list doesn't match the exact league names in fixture docs.
 - Fixtures are stored under a different date/time format than expected.
 
-**Note:** The API-Football API returns multiple leagues with the same name (e.g., "Premier League" for England, Ethiopia, etc.). Consider filtering by both `league.name` AND `league.country` if you want specific leagues only.*rule-based predictions** for today’s matches and serves them via a **FastAPI** API.
+**Note:** The API-Football API returns multiple leagues with the same name (e.g., "Premier League" for England, Ethiopia, etc.). Consider filtering by both `league.name` AND `league.country` if you want specific leagues only.
 
 > This repo currently focuses on “good enough” automation (scheduled ingestion + predictions API). There’s no GUI—configuration lives in `app/config/settings.py` and/or `.env`.
 
