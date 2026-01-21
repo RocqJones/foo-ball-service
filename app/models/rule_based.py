@@ -1,5 +1,13 @@
 import math
 
+# Default fallback values for goals statistics when team data is unavailable
+# 1.5 goals represents a reasonable average for both scoring and conceding in football:
+# - It's slightly above 1.0 (which would be very defensive)
+# - It's slightly below 2.0 (which would be very attacking)
+# - This neutral value avoids biasing predictions toward high or low scoring outcomes
+DEFAULT_GOALS_FOR = 1.5
+DEFAULT_GOALS_AGAINST = 1.5
+
 def sigmoid(x: float) -> float:
     return 1 / (1 + math.exp(-x))
 
@@ -17,10 +25,10 @@ def predict_over_under(home_stats: dict, away_stats: dict, line: float = 2.5) ->
     Considers both teams' attacking (goals_for) and defensive (goals_against) stats.
     """
     # Expected goals for home team (their attack vs away defense)
-    home_expected = (home_stats.get("goals_for", 1.5) + away_stats.get("goals_against", 1.5)) / 2
+    home_expected = (home_stats.get("goals_for", DEFAULT_GOALS_FOR) + away_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) / 2
     
     # Expected goals for away team (their attack vs home defense)
-    away_expected = (away_stats.get("goals_for", 1.5) + home_stats.get("goals_against", 1.5)) / 2
+    away_expected = (away_stats.get("goals_for", DEFAULT_GOALS_FOR) + home_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) / 2
     
     # Total expected goals in the match
     total_expected_goals = home_expected + away_expected
@@ -36,10 +44,10 @@ def predict_btts(home_stats: dict, away_stats: dict) -> float:
     Higher probability if both teams have good attacking records.
     """
     # Home team's scoring ability vs away defense
-    home_scoring_potential = (home_stats.get("goals_for", 1.5) + away_stats.get("goals_against", 1.5)) / 2
+    home_scoring_potential = (home_stats.get("goals_for", DEFAULT_GOALS_FOR) + away_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) / 2
     
     # Away team's scoring ability vs home defense
-    away_scoring_potential = (away_stats.get("goals_for", 1.5) + home_stats.get("goals_against", 1.5)) / 2
+    away_scoring_potential = (away_stats.get("goals_for", DEFAULT_GOALS_FOR) + home_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) / 2
     
     # Use minimum of both (weakest link determines BTTS)
     min_scoring = min(home_scoring_potential, away_scoring_potential)
