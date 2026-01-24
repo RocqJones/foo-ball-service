@@ -78,7 +78,7 @@ API_FOOTBALL_KEY=your_key_here
 
 # Optional (defaults shown)
 MONGO_URI=mongodb://localhost:27017
-DB_NAME=foo_ball_bot
+DB_NAME=foo_ball_service
 
 # Present but not fully wired through yet
 ODDS_API_KEY=

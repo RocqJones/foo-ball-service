@@ -8,12 +8,12 @@ class Settings:
     ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 
     MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-    DB_NAME = os.getenv("DB_NAME", "foo_ball_bot")
+    DB_NAME = os.getenv("DB_NAME", "foo_ball_service")
 
     # Leagues to track - easily configurable
     TRACKED_LEAGUES = [
         'UEFA Champions League',
-        'Premier League',
+        #'Premier League',
         'La Liga',
         'Serie A',
         'Bundesliga'
