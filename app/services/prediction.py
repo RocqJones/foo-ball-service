@@ -167,6 +167,13 @@ def predict_today():
     # Persist all predictions to Mongo using bulk write for better performance
     if predictions:
         predictions_col = get_collection("predictions")
+        today_str = date.today().isoformat()
+        
+        # Remove all existing predictions for today's date to prevent duplicates
+        # The delete_many operation won't crash if no records exist (deleted_count will be 0)
+        delete_result = predictions_col.delete_many({"created_at": today_str})
+        print(f"Deleted {delete_result.deleted_count} existing predictions for {today_str}")
+        
         bulk_operations = [
             UpdateOne(
                 {"fixture_id": pred["fixture_id"]},
@@ -176,6 +183,7 @@ def predict_today():
             for pred in predictions
         ]
         predictions_col.bulk_write(bulk_operations)
+        print(f"Saved {len(predictions)} predictions for {today_str}")
 
     # Return ranked predictions (with configurable limit)
     return rank_predictions(predictions, limit=settings.PREDICTION_LIMIT)
