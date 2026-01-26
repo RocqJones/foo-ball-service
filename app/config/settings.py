@@ -12,11 +12,10 @@ class Settings:
 
     # Leagues to track - easily configurable
     TRACKED_LEAGUES = [
-        'UEFA Champions League',
-        #'Premier League',
-        'La Liga',
-        'Serie A',
-        'Bundesliga'
+        {"name": 'Premier League', "country": 'England'},
+        {"name": 'La Liga', "country": 'Spain'},
+        {"name": 'Bundesliga', "country": 'Germany'},
+        {"name": 'UEFA Champions League', "country": 'World'}
     ]
 
     # Default prediction limit (None = no limit)
@@ -27,5 +26,7 @@ class Settings:
 
     # Maximum number of days to look back for team stats
     MAX_DAYS_BACK = 90
+
+    DEFAULT_LIMIT = 35
 
 settings = Settings()

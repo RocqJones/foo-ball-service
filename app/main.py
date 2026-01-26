@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from datetime import date
+from app.config.settings import Settings
 from app.services.prediction import predict_today, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
 from app.services.analysis import analyze_predictions, get_top_picks
@@ -71,7 +72,7 @@ def get_predictions_analysis():
     return analysis
 
 @app.get("/predictions/top-picks")
-def get_predictions_top_picks(limit: int = 10):
+def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
     """
     Get top picks based on composite scoring.
     Always uses the latest predictions from the database.

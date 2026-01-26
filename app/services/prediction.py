@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from app.db.mongo import get_collection
 from app.models.rule_based import predict_home_win, predict_over_under, predict_btts
 from app.services.ranking import rank_predictions
@@ -29,13 +29,49 @@ def get_persisted_predictions_today():
 
 def predict_today():
     fixtures_col = get_collection("fixtures")
-    today = date.today().isoformat()
+    date_prefix = date.today().strftime("%Y-%m-%d")
 
-    # Filter by date AND tracked leagues
-    fixtures = list(fixtures_col.find({
-        "fixture.date": {"$regex": f"^{today}"},
-        "league.name": {"$in": settings.TRACKED_LEAGUES}
-    }))
+    # Build league name and country filters from settings.TRACKED_LEAGUES
+    league_names = []
+    league_countries = []
+    for item in settings.TRACKED_LEAGUES:
+        if isinstance(item, str):
+            league_names.append(item)
+        elif isinstance(item, dict):
+            name = item.get("name")
+            country = item.get("country")
+            if name:
+                league_names.append(name)
+            if country:
+                league_countries.append(country)
+
+    # Build per-league ($and) filters so we match both name AND country 
+    seen = set()
+    league_entry_filters = []
+    for item in settings.TRACKED_LEAGUES:
+        if isinstance(item, dict):
+            name = item.get("name")
+            country = item.get("country")
+            key = (name, country)
+            if key in seen:
+                continue
+            seen.add(key)
+            if name and country:
+                league_entry_filters.append({"$and": [{"league.name": name}, {"league.country": country}]})
+            elif name:
+                league_entry_filters.append({"league.name": name})
+        elif isinstance(item, str):
+            if item in seen:
+                continue
+            seen.add(item)
+            league_entry_filters.append({"league.name": item})
+
+    # Filter by date regex AND (one of the league name+country pairs)
+    query = {"fixture.date": {"$regex": f"^{date_prefix}"}}
+    if league_entry_filters:
+        query["$or"] = league_entry_filters
+
+    fixtures = list(fixtures_col.find(query))
 
     if not fixtures:
         return []

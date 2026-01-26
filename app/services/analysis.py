@@ -4,6 +4,8 @@ Enhanced prediction analysis using pandas for better insights.
 import pandas as pd
 from typing import List, Dict
 
+from app.config.settings import Settings
+
 
 def analyze_predictions(predictions: List[Dict]) -> Dict:
     """
@@ -90,7 +92,7 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     }
 
 
-def get_top_picks(predictions: List[Dict], limit: int = 10) -> List[Dict]:
+def get_top_picks(predictions: List[Dict], limit: int) -> List[Dict]:
     """
     Get top picks using a composite scoring system.
     
