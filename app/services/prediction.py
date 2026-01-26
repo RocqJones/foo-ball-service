@@ -169,10 +169,8 @@ def predict_today():
         predictions_col = get_collection("predictions")
         today_str = date.today().isoformat()
         
-        """
-        - Remove all existing predictions for today's date to prevent duplicates
-        - The delete_many operation won't crash if no records exist (deleted_count will be 0)
-        """
+        # Remove all existing predictions for today's date to prevent duplicates
+        # The delete_many operation won't crash if no records exist (deleted_count will be 0)
         delete_result = predictions_col.delete_many({"created_at": today_str})
         print(f"Deleted {delete_result.deleted_count} existing predictions for {today_str}")
         
