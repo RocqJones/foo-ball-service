@@ -5,10 +5,8 @@ def ingest_fixtures(date: str):
     fixtures_col = get_collection("fixtures")
     fixtures = get_fixtures(date)
 
-    """
-    - Remove all existing fixtures for this date to prevent duplicates
-    - The delete_many operation won't crash if no records exist (deleted_count will be 0)
-    """
+    # Remove all existing fixtures for this date to prevent duplicates
+    # The delete_many operation won't crash if no records exist (deleted_count will be 0)
     delete_result = fixtures_col.delete_many({"fixture.date": {"$regex": f"^{date}"}})
     print(f"Deleted {delete_result.deleted_count} existing fixtures for {date}")
     
