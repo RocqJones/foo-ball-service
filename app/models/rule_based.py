@@ -11,24 +11,38 @@ DEFAULT_GOALS_AGAINST = 1.5
 def sigmoid(x: float) -> float:
     return 1 / (1 + math.exp(-x))
 
+
+def _compute_win_score(side_stats: dict, opponent_stats: dict, advantage: float) -> float:
+    """
+    Compute win score for a side given team stats and a home/away advantage modifier.
+    
+    Args:
+        side_stats: Statistics for the team we're computing score for
+        opponent_stats: Statistics for the opposing team
+        advantage: Home advantage modifier (positive for home, negative for away)
+    
+    Returns:
+        Raw score before sigmoid transformation
+    """
+    score = advantage
+    score += (side_stats.get("form", 0) - opponent_stats.get("form", 0)) * 0.8
+    score += ((side_stats.get("goals_for", 0) - side_stats.get("goals_against", 0)) -
+              (opponent_stats.get("goals_for", 0) - opponent_stats.get("goals_against", 0))) * 0.6
+    score -= side_stats.get("missing_key_players", 0) * 1.2
+    return score
+
+
 def predict_home_win(home_stats: dict, away_stats: dict) -> float:
-    score = 2.0  # home advantage
-    score += (home_stats.get("form", 0) - away_stats.get("form", 0)) * 0.8
-    score += ((home_stats.get("goals_for", 0) - home_stats.get("goals_against", 0)) -
-              (away_stats.get("goals_for", 0) - away_stats.get("goals_against", 0))) * 0.6
-    score -= home_stats.get("missing_key_players", 0) * 1.2
+    score = _compute_win_score(home_stats, away_stats, advantage=2.0)
     return sigmoid(score)
+
 
 def predict_away_win(home_stats: dict, away_stats: dict) -> float:
     """
     Predict probability of away team winning.
     Away team has no home advantage, so they need stronger stats to win.
     """
-    score = -2.0  # away disadvantage (inverse of home advantage)
-    score += (away_stats.get("form", 0) - home_stats.get("form", 0)) * 0.8
-    score += ((away_stats.get("goals_for", 0) - away_stats.get("goals_against", 0)) -
-              (home_stats.get("goals_for", 0) - home_stats.get("goals_against", 0))) * 0.6
-    score -= away_stats.get("missing_key_players", 0) * 1.2
+    score = _compute_win_score(away_stats, home_stats, advantage=-2.0)
     return sigmoid(score)
 
 def predict_match_outcome(home_stats: dict, away_stats: dict) -> tuple[float, float, float]:
