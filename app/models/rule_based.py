@@ -40,7 +40,7 @@ def predict_home_win(home_stats: dict, away_stats: dict) -> float:
 def predict_away_win(home_stats: dict, away_stats: dict) -> float:
     """
     Predict probability of away team winning.
-    Away team has no home advantage, so they need stronger stats to win.
+    Away team is modeled with an away disadvantage (negative home-advantage modifier), so they need stronger stats to win.
     """
     score = _compute_win_score(away_stats, home_stats, advantage=-2.0)
     return sigmoid(score)
