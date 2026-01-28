@@ -154,8 +154,12 @@ Example response shape for `/predictions/today`:
     "fixture_id": 1482325,
     "match": "Welwalo Adigrat Uni vs Sheger Ketema",
     "league": "Premier League",
+    "league_logo": "https://media.api-sports.io/football/leagues/39.png",
+    "league_flag": "https://media.api-sports.io/flags/gb.svg",
     "home_team": "Welwalo Adigrat Uni",
+    "home_team_logo": "https://media.api-sports.io/football/teams/123.png",
     "away_team": "Sheger Ketema",
+    "away_team_logo": "https://media.api-sports.io/football/teams/456.png",
     "home_win_probability": 0.741,
     "home_win_confidence": "HIGH",
     "draw_probability": 0.144,
@@ -178,11 +182,17 @@ Example response shape for `/predictions/today`:
 ```
 
 The `/predictions/analysis` endpoint provides:
-- `best_home_wins` — top 5 high-confidence home win predictions
-- `best_goals_bets` — top 5 over/under 2.5 predictions with clear recommendations
-- `best_btts` — top 5 both teams to score predictions
-- `best_value_bets` — top 5 predictions with positive value scores
+- `best_home_wins` — top 5 high-confidence home win predictions (includes team/league logos)
+- `best_goals_bets` — top 5 over/under 2.5 predictions with clear recommendations (includes team/league logos)
+- `best_btts` — top 5 both teams to score predictions (includes team/league logos)
+- `best_value_bets` — top 5 predictions with positive value scores (includes team/league logos)
 - `summary` — statistics including league distribution, confidence levels, etc.
+
+All prediction endpoints now include visual assets for beautiful frontend displays:
+- `league_logo` — League logo URL (e.g., Premier League crest)
+- `league_flag` — Country flag URL for the league
+- `home_team_logo` — Home team logo/crest URL
+- `away_team_logo` — Away team logo/crest URL
 
 ## Data & collections
 

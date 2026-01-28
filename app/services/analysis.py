@@ -36,6 +36,11 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     ].nlargest(5, 'home_win_probability')[
         [
             'match',
+            'league',
+            'league_logo',
+            'league_flag',
+            'home_team_logo',
+            'away_team_logo',
             'home_win_probability',
             'home_win_confidence',
             'draw_probability',
@@ -48,7 +53,16 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     best_goals_bets = df[
         df['goals_confidence'] == 'HIGH'
     ].nlargest(5, 'goals_probability')[
-        ['match', 'goals_bet', 'goals_probability', 'goals_confidence']
+        [
+            'match',
+            'league_logo',
+            'league_flag',
+            'home_team_logo',
+            'away_team_logo',
+            'goals_bet',
+            'goals_probability',
+            'goals_confidence'
+        ]
     ].to_dict('records')
     
     # Best BTTS bets
@@ -56,7 +70,15 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
         (df['btts_confidence'].isin(['HIGH', 'MEDIUM'])) &
         (df['btts_probability'] >= 0.65)
     ].nlargest(5, 'btts_probability')[
-        ['match', 'btts_probability', 'btts_confidence']
+        [
+            'match',
+            'league_logo',
+            'league_flag',
+            'home_team_logo',
+            'away_team_logo',
+            'btts_probability',
+            'btts_confidence'
+        ]
     ].to_dict('records')
     
     # Best value bets (positive value score + decent probability)
@@ -70,6 +92,10 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
         ].nlargest(5, 'value_score')[
             [
                 'match',
+                'league_logo',
+                'league_flag',
+                'home_team_logo',
+                'away_team_logo',
                 'home_win_probability',
                 'draw_probability',
                 'away_win_probability',
@@ -134,6 +160,10 @@ def get_top_picks(predictions: List[Dict], limit: int) -> List[Dict]:
             'fixture_id',
             'match',
             'league',
+            'league_logo',
+            'league_flag',
+            'home_team_logo',
+            'away_team_logo',
             'home_win_probability',
             'draw_probability',
             'away_win_probability',
