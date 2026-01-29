@@ -1,5 +1,6 @@
-from fastapi import FastAPI, status, Body, Depends
+from fastapi import FastAPI, status, Body, Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError, HTTPException
 from datetime import date
 from typing import Annotated
 from app.config.settings import Settings
@@ -10,12 +11,61 @@ from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
 from app.utils.logger import logger
-from app.auth import verify_admin_key
+from app.security.auth import verify_admin_key
 
 app = FastAPI(title="Foo Ball Service")
 
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
+
+# Custom exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Handle validation errors with consistent response format including statusCode
+    """
+    errors = exc.errors()
+    
+    # Extract the first error for a clear message
+    first_error = errors[0] if errors else {}
+    field_name = " -> ".join(str(loc) for loc in first_error.get("loc", []))
+    error_msg = first_error.get("msg", "Validation error")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "statusCode": 422,
+            "status": "error",
+            "message": f"Validation error: {error_msg}",
+            "field": field_name,
+            "details": errors
+        }
+    )
+
+# Custom exception handler for HTTPExceptions
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Handle HTTP exceptions with consistent response format including statusCode
+    """
+    # If detail is already a dict with error_code, use it
+    if isinstance(exc.detail, dict):
+        content = {
+            "statusCode": exc.status_code,
+            "status": "error",
+            **exc.detail
+        }
+    else:
+        content = {
+            "statusCode": exc.status_code,
+            "status": "error",
+            "message": exc.detail
+        }
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=content
+    )
 
 @app.on_event("startup")
 async def startup_event():

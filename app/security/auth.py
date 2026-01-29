@@ -31,7 +31,10 @@ async def verify_admin_key(x_api_key: str = Header(..., description="Admin API k
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin authentication not configured. Set ADMIN_API_KEY environment variable."
+            detail={
+                "error_code": "ADMIN_KEY_NOT_CONFIGURED",
+                "message": "Admin authentication not configured. Set ADMIN_API_KEY environment variable."
+            }
         )
     
     # Verify the provided key
@@ -43,7 +46,10 @@ async def verify_admin_key(x_api_key: str = Header(..., description="Admin API k
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key"
+            detail={
+                "error_code": "INVALID_ADMIN_KEY",
+                "message": "Invalid API key"
+            }
         )
     
     # Authentication successful
