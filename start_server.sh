@@ -7,8 +7,8 @@
 #   HOST=127.0.0.1 PORT=9000 ./start_server.sh
 #
 # Examples:
-#   ./start_server.sh                    # Start on default port 8000, localhost only
-#   ./start_server.sh 9000               # Start on port 9000, localhost only
+#   ./start_server.sh                    # Start on default port 8000 and host 127.0.0.1
+#   ./start_server.sh 9000               # Start on port 9000 and host 127.0.0.1
 #   ./start_server.sh 9000 0.0.0.0       # Start on port 9000, all interfaces
 #   PORT=9000 ./start_server.sh          # Start on port 9000 via env var
 #   HOST=0.0.0.0 ./start_server.sh       # Start on all interfaces
@@ -53,8 +53,8 @@ fi
 echo "Checking for existing processes on port $PORT..."
 PIDS=$(lsof -ti:"$PORT" 2>/dev/null)
 if [ -n "$PIDS" ]; then
-    # Convert PIDs to array for proper handling
-    PID_ARRAY=($PIDS)
+    # Convert PIDs to array for proper handling using mapfile
+    mapfile -t PID_ARRAY <<< "$PIDS"
     PID_COUNT=${#PID_ARRAY[@]}
     
     if [ "$PID_COUNT" -eq 1 ]; then
@@ -73,9 +73,9 @@ if [ -n "$PIDS" ]; then
         exit 1
     fi
     
-    read -p "Do you want to terminate ${PID_COUNT} process(es)? (y/N): " -n 1 -r REPLY
+    read -p "Do you want to terminate ${PID_COUNT} process(es)? (y/N): " -n 1 -r USER_REPLY
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ $USER_REPLY =~ ^[Yy]$ ]]; then
         for PID in "${PID_ARRAY[@]}"; do
             echo "Attempting graceful shutdown of PID $PID (SIGTERM)..."
             if kill -15 "$PID" 2>/dev/null; then
@@ -91,17 +91,20 @@ if [ -n "$PIDS" ]; then
                 done
                 
                 # If still running, escalate to SIGKILL
-                if [ "$TERMINATED" = false ] && kill -0 "$PID" 2>/dev/null; then
-                    echo "Process $PID did not terminate gracefully. Forcing shutdown (SIGKILL)..."
-                    if kill -9 "$PID" 2>/dev/null; then
-                        sleep 1
-                        if kill -0 "$PID" 2>/dev/null; then
-                            echo "Warning: Failed to kill process $PID"
+                if [ "$TERMINATED" = false ]; then
+                    # Double-check if process still exists before sending SIGKILL
+                    if kill -0 "$PID" 2>/dev/null; then
+                        echo "Process $PID did not terminate gracefully. Forcing shutdown (SIGKILL)..."
+                        if kill -9 "$PID" 2>/dev/null; then
+                            sleep 1
+                            if kill -0 "$PID" 2>/dev/null; then
+                                echo "Warning: Failed to kill process $PID"
+                            else
+                                echo "Process $PID forcefully terminated."
+                            fi
                         else
-                            echo "Process $PID forcefully terminated."
+                            echo "Warning: Failed to send SIGKILL to process $PID (may have already terminated)"
                         fi
-                    else
-                        echo "Warning: Failed to send SIGKILL to process $PID"
                     fi
                 fi
             else
