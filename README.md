@@ -232,11 +232,13 @@ The `/predictions/analysis` endpoint provides:
 - `best_value_bets` — top 5 predictions with positive value scores (includes team/league logos)
 - `summary` — statistics including league distribution, confidence levels, etc.
 
-All prediction endpoints now include visual assets for beautiful frontend displays:
+All prediction endpoints include visual assets for beautiful frontend displays (available when predictions are generated or refreshed):
 - `league_logo` — League logo URL (e.g., Premier League crest)
 - `league_flag` — Country flag URL for the league
 - `home_team_logo` — Home team logo/crest URL
 - `away_team_logo` — Away team logo/crest URL
+
+Note: Cached predictions created before this feature may return `null` for these fields. Regenerate predictions to populate visual assets.
 
 ## Data & collections
 
