@@ -1,7 +1,8 @@
 from fastapi import FastAPI, status, Body
 from fastapi.responses import JSONResponse
 from datetime import date
-from typing import Optional
+from typing import Optional, Annotated
+from pydantic import Field
 from app.config.settings import Settings
 from app.services.prediction import predict_today, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
@@ -211,20 +212,21 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
         )
 
 @app.post("/database/cleanup")
-def cleanup_database(days: Optional[int] = Body(7, embed=True)):
+def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
     """
     Delete all records older than the specified number of days.
     This helps manage database storage by removing old data.
     
     Request Body:
         {
-            "days": 7  // Number of days to retain (default: 7)
+            "days": 7  // Number of days to retain (default: 7, must be >= 1)
         }
     
     Args:
         days: Number of days to retain. Records older than this will be deleted.
               For example, days=7 keeps only the last 7 days of data.
               Common values: 7, 15, 30, 90 days.
+              Must be at least 1.
     
     Returns:
         Summary of deleted records per collection
@@ -244,17 +246,6 @@ def cleanup_database(days: Optional[int] = Body(7, embed=True)):
     """
     try:
         logger.info(f"Cleanup requested with days={days}")
-        
-        if days < 1:
-            logger.warning(f"Invalid cleanup request: days={days} (must be >= 1)")
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={
-                    "statusCode": 400,
-                    "status": "error",
-                    "message": "Days parameter must be at least 1"
-                }
-            )
         
         result = cleanup_old_records(days=days)
         logger.info(f"Cleanup completed successfully: {result.get('total_records_deleted', 0)} records deleted")
