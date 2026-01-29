@@ -1,5 +1,17 @@
 #!/bin/bash
 # start_server.sh - Helper script to start the Foo Ball Service
+#
+# Usage:
+#   ./start_server.sh [PORT]
+#   PORT=9000 ./start_server.sh
+#
+# Examples:
+#   ./start_server.sh           # Start on default port 8000
+#   ./start_server.sh 9000      # Start on port 9000
+#   PORT=9000 ./start_server.sh # Start on port 9000 via env var
+
+# Default port, can be overridden via environment variable or command-line argument
+PORT="${1:-${PORT:-8000}}"
 
 # Check if virtual environment exists, create if not
 if [ ! -d "venv" ]; then
@@ -27,15 +39,44 @@ else
     echo "Virtual environment found."
 fi
 
-# Kill any existing process on port 8000
-echo "Checking for existing processes on port 8000..."
-if lsof -ti:8000 > /dev/null 2>&1; then
-    echo "Found process on port 8000. Killing it..."
-    kill -9 $(lsof -ti:8000)
-    sleep 1
+# Check for existing process on the specified port
+echo "Checking for existing processes on port $PORT..."
+PID=$(lsof -ti:$PORT 2>/dev/null)
+if [ -n "$PID" ]; then
+    echo "Found process (PID: $PID) on port $PORT."
+    read -p "Do you want to terminate this process? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Attempting graceful shutdown (SIGTERM)..."
+        kill -15 $PID 2>/dev/null
+        
+        # Wait up to 5 seconds for graceful shutdown
+        for i in {1..5}; do
+            if ! kill -0 $PID 2>/dev/null; then
+                echo "Process terminated gracefully."
+                break
+            fi
+            sleep 1
+        done
+        
+        # If still running, escalate to SIGKILL
+        if kill -0 $PID 2>/dev/null; then
+            echo "Process did not terminate gracefully. Forcing shutdown (SIGKILL)..."
+            kill -9 $PID 2>/dev/null
+            sleep 1
+            if kill -0 $PID 2>/dev/null; then
+                echo "Warning: Failed to kill process $PID"
+            else
+                echo "Process forcefully terminated."
+            fi
+        fi
+    else
+        echo "Aborted. Cannot start server while port $PORT is in use."
+        exit 1
+    fi
 fi
 
 # Activate virtual environment and start server
-echo "Starting Foo Ball Service..."
+echo "Starting Foo Ball Service on port $PORT..."
 source venv/bin/activate
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --reload
