@@ -1,4 +1,4 @@
-from fastapi import FastAPI, status, Body
+from fastapi import FastAPI, status, Body, Depends
 from fastapi.responses import JSONResponse
 from datetime import date
 from typing import Annotated
@@ -10,6 +10,7 @@ from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
 from app.utils.logger import logger
+from app.auth import verify_admin_key
 
 app = FastAPI(title="Foo Ball Service")
 
@@ -210,11 +211,14 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
             }
         )
 
-@app.post("/database/cleanup")
+@app.post("/database/cleanup", dependencies=[Depends(verify_admin_key)])
 def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
     """
     Delete all records older than the specified number of days.
     This helps manage database storage by removing old data.
+    
+    **Authentication Required**: This endpoint requires admin authentication.
+    Include the admin API key in the X-API-Key header.
     
     Request Body:
         {
@@ -232,15 +236,19 @@ def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
     
     Examples:
         POST /database/cleanup
+        Headers: X-API-Key: your-admin-api-key
         Body: {"days": 7}   # Clean records older than 7 days
         
         POST /database/cleanup
+        Headers: X-API-Key: your-admin-api-key
         Body: {"days": 15}  # Clean records older than 15 days
         
         POST /database/cleanup
+        Headers: X-API-Key: your-admin-api-key
         Body: {"days": 30}  # Clean records older than 30 days
         
         POST /database/cleanup
+        Headers: X-API-Key: your-admin-api-key
         Body: {"days": 90}  # Clean records older than 90 days
     """
     try:
@@ -269,11 +277,14 @@ def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
             }
         )
 
-@app.get("/database/stats")
+@app.get("/database/stats", dependencies=[Depends(verify_admin_key)])
 def get_db_statistics():
     """
     Get statistics about the database collections including record counts
     and date ranges. Useful for monitoring database size before cleanup.
+    
+    **Authentication Required**: This endpoint requires admin authentication.
+    Include the admin API key in the X-API-Key header.
     
     Returns:
         Statistics for each collection (fixtures, predictions, team_stats)
