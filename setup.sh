@@ -16,6 +16,12 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
 echo "Found Python $PYTHON_VERSION"
 
+REQUIRED_PYTHON_VERSION="3.8"
+# Enforce minimum Python version
+if [ "$(printf '%s\n' "$REQUIRED_PYTHON_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_PYTHON_VERSION" ]; then
+    echo "Error: Python $REQUIRED_PYTHON_VERSION or higher is required. Found Python $PYTHON_VERSION."
+    exit 1
+fi
 # Create virtual environment
 if [ -d "venv" ]; then
     echo "Virtual environment already exists."
