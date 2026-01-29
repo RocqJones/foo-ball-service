@@ -106,6 +106,10 @@ Add:
 # Required
 API_FOOTBALL_KEY=your_key_here
 
+# Admin API key for protected endpoints (database cleanup, stats)
+# Generate a strong random key, e.g.: openssl rand -hex 32
+ADMIN_API_KEY=your_secure_admin_key_here
+
 # Optional (defaults shown)
 MONGO_URI=mongodb://localhost:27017
 DB_NAME=foo_ball_service
@@ -215,11 +219,13 @@ All endpoints now return standardized responses with HTTP status codes:
 - `GET /predictions/analysis` — pandas-powered analysis with best bets by category
 - `GET /predictions/top-picks?limit=10` — top picks using composite scoring
 
-**Database Management:**
+**Database Management (Authentication Required):**
 - `POST /database/cleanup` — delete records older than specified days
   - Body: `{"days": 7}` (default: 7)
+  - Header: `X-Admin-API-Key: your_admin_key`
   - See [CLEANUP_API.md](CLEANUP_API.md) for details
 - `GET /database/stats` — get database statistics (record counts, date ranges)
+  - Header: `X-Admin-API-Key: your_admin_key`
 
 For complete database cleanup documentation, see **[CLEANUP_API.md](CLEANUP_API.md)**
 
@@ -398,16 +404,21 @@ Logs automatically rotate at 10MB with 5 backups per file (~60MB total per log t
 
 ### Cleanup Old Records
 
-To manage database storage, use the cleanup API:
+To manage database storage, use the cleanup API. **Note:** These endpoints require admin authentication.
 
 ```bash
+# Set your admin API key
+export ADMIN_API_KEY="your_secure_admin_key_here"
+
+# Check database stats first
+curl http://localhost:8000/database/stats \
+  -H "X-Admin-API-Key: $ADMIN_API_KEY"
+
 # Clean records older than 7 days (default)
 curl -X POST http://localhost:8000/database/cleanup \
   -H "Content-Type: application/json" \
+  -H "X-Admin-API-Key: $ADMIN_API_KEY" \
   -d '{"days": 7}'
-
-# Check database stats first
-curl http://localhost:8000/database/stats
 ```
 
 See [CLEANUP_API.md](CLEANUP_API.md) for complete documentation.

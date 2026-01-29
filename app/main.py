@@ -1,4 +1,4 @@
-from fastapi import FastAPI, status, Body
+from fastapi import FastAPI, status, Body, Depends
 from fastapi.responses import JSONResponse
 from datetime import date
 from typing import Annotated
@@ -10,6 +10,7 @@ from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
 from app.utils.logger import logger
+from app.auth import verify_admin_api_key
 
 app = FastAPI(title="Foo Ball Service")
 
@@ -211,15 +212,24 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
         )
 
 @app.post("/database/cleanup")
-def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
+def cleanup_database(
+    days: Annotated[int, Body(ge=1, embed=True)] = 7,
+    authenticated: bool = Depends(verify_admin_api_key)
+):
     """
     Delete all records older than the specified number of days.
     This helps manage database storage by removing old data.
+    
+    **Authentication Required:** This endpoint requires admin authentication.
+    Pass your admin API key via the `X-Admin-API-Key` header.
     
     Request Body:
         {
             "days": 7  // Number of days to retain (default: 7, must be >= 1)
         }
+    
+    Headers:
+        X-Admin-API-Key: your_admin_api_key_here
     
     Args:
         days: Number of days to retain. Records older than this will be deleted.
@@ -270,10 +280,16 @@ def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
         )
 
 @app.get("/database/stats")
-def get_db_statistics():
+def get_db_statistics(authenticated: bool = Depends(verify_admin_api_key)):
     """
     Get statistics about the database collections including record counts
     and date ranges. Useful for monitoring database size before cleanup.
+    
+    **Authentication Required:** This endpoint requires admin authentication.
+    Pass your admin API key via the `X-Admin-API-Key` header.
+    
+    Headers:
+        X-Admin-API-Key: your_admin_api_key_here
     
     Returns:
         Statistics for each collection (fixtures, predictions, team_stats)
