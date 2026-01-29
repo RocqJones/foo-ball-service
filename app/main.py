@@ -2,7 +2,6 @@ from fastapi import FastAPI, status, Body
 from fastapi.responses import JSONResponse
 from datetime import date
 from typing import Optional, Annotated
-from pydantic import Field
 from app.config.settings import Settings
 from app.services.prediction import predict_today, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
