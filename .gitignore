@@ -8,5 +8,11 @@ app/features/__pycache__/
 app/jobs/__pycache__/
 app/models/__pycache__/
 app/services/__pycache__/
+app/middleware/__pycache__/
+app/utils/__pycache__/
 *.pyc
 .DS_Store
+
+# Log files
+logs/
+*.log
