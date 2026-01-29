@@ -7,6 +7,21 @@ from typing import List, Dict
 from app.config.settings import Settings
 
 
+def _ensure_visual_asset_columns(df: pd.DataFrame) -> None:
+    """
+    Ensure logo/flag columns exist in DataFrame for backward compatibility.
+    
+    Cached predictions created before the visual assets feature won't have these
+    columns, so we add them with None defaults to prevent KeyError.
+    
+    Args:
+        df: DataFrame to ensure columns exist in (modified in-place)
+    """
+    for col in ['league_logo', 'league_flag', 'home_team_logo', 'away_team_logo']:
+        if col not in df.columns:
+            df[col] = None
+
+
 def analyze_predictions(predictions: List[Dict]) -> Dict:
     """
     Analyze predictions using pandas to extract insights.
@@ -23,6 +38,9 @@ def analyze_predictions(predictions: List[Dict]) -> Dict:
     
     # Convert to DataFrame
     df = pd.DataFrame(predictions)
+    
+    # Ensure logo/flag columns exist (backward compatibility with cached predictions)
+    _ensure_visual_asset_columns(df)
     
     # Extract goals prediction info into separate columns
     df['goals_bet'] = df['goals_prediction'].apply(lambda x: x['bet'])
@@ -142,6 +160,10 @@ def get_top_picks(predictions: List[Dict], limit: int) -> List[Dict]:
         return []
     
     df = pd.DataFrame(predictions)
+    
+    # Ensure logo/flag columns exist (backward compatibility with cached predictions)
+    _ensure_visual_asset_columns(df)
+    
     df['goals_probability'] = df['goals_prediction'].apply(lambda x: x['probability'])
     
     # Handle value_score with None values properly
