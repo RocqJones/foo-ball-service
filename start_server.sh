@@ -2,16 +2,20 @@
 # start_server.sh - Helper script to start the Foo Ball Service
 #
 # Usage:
-#   ./start_server.sh [PORT]
+#   ./start_server.sh [PORT] [HOST]
 #   PORT=9000 ./start_server.sh
+#   HOST=127.0.0.1 PORT=9000 ./start_server.sh
 #
 # Examples:
-#   ./start_server.sh           # Start on default port 8000
-#   ./start_server.sh 9000      # Start on port 9000
-#   PORT=9000 ./start_server.sh # Start on port 9000 via env var
+#   ./start_server.sh                    # Start on default port 8000, localhost only
+#   ./start_server.sh 9000               # Start on port 9000, localhost only
+#   ./start_server.sh 9000 0.0.0.0       # Start on port 9000, all interfaces
+#   PORT=9000 ./start_server.sh          # Start on port 9000 via env var
+#   HOST=0.0.0.0 ./start_server.sh       # Start on all interfaces
 
-# Default port, can be overridden via environment variable or command-line argument
+# Default port and host, can be overridden via environment variable or command-line argument
 PORT="${1:-${PORT:-8000}}"
+HOST="${2:-${HOST:-127.0.0.1}}"
 
 # Validate port number
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
@@ -47,35 +51,63 @@ fi
 
 # Check for existing process on the specified port
 echo "Checking for existing processes on port $PORT..."
-PID=$(lsof -ti:"$PORT" 2>/dev/null)
-if [ -n "$PID" ]; then
-    echo "Found process (PID: $PID) on port $PORT."
-    read -p "Do you want to terminate this process? (y/N): " -n 1 -r
+PIDS=$(lsof -ti:"$PORT" 2>/dev/null)
+if [ -n "$PIDS" ]; then
+    # Convert PIDs to array for proper handling
+    PID_ARRAY=($PIDS)
+    PID_COUNT=${#PID_ARRAY[@]}
+    
+    if [ "$PID_COUNT" -eq 1 ]; then
+        echo "Found process (PID: ${PID_ARRAY[0]}) on port $PORT."
+    else
+        echo "Found $PID_COUNT processes on port $PORT:"
+        for pid in "${PID_ARRAY[@]}"; do
+            echo "  - PID: $pid"
+        done
+    fi
+    
+    # Check if running in interactive mode
+    if [[ ! -t 0 ]]; then
+        echo "Error: Script is running in non-interactive mode, but port $PORT is in use."
+        echo "Cannot prompt for confirmation. Please free the port manually or use a different port."
+        exit 1
+    fi
+    
+    read -p "Do you want to terminate ${PID_COUNT} process(es)? (y/N): " -n 1 -r REPLY
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "Attempting graceful shutdown (SIGTERM)..."
-        kill -15 "$PID" 2>/dev/null
-        
-        # Wait up to 5 seconds for graceful shutdown
-        for i in {1..5}; do
-            if ! kill -0 "$PID" 2>/dev/null; then
-                echo "Process terminated gracefully."
-                break
-            fi
-            sleep 1
-        done
-        
-        # If still running, escalate to SIGKILL
-        if kill -0 "$PID" 2>/dev/null; then
-            echo "Process did not terminate gracefully. Forcing shutdown (SIGKILL)..."
-            kill -9 "$PID" 2>/dev/null
-            sleep 1
-            if kill -0 "$PID" 2>/dev/null; then
-                echo "Warning: Failed to kill process $PID"
+        for PID in "${PID_ARRAY[@]}"; do
+            echo "Attempting graceful shutdown of PID $PID (SIGTERM)..."
+            if kill -15 "$PID" 2>/dev/null; then
+                # Wait up to 5 seconds for graceful shutdown
+                TERMINATED=false
+                for i in {1..5}; do
+                    if ! kill -0 "$PID" 2>/dev/null; then
+                        echo "Process $PID terminated gracefully."
+                        TERMINATED=true
+                        break
+                    fi
+                    sleep 1
+                done
+                
+                # If still running, escalate to SIGKILL
+                if [ "$TERMINATED" = false ] && kill -0 "$PID" 2>/dev/null; then
+                    echo "Process $PID did not terminate gracefully. Forcing shutdown (SIGKILL)..."
+                    if kill -9 "$PID" 2>/dev/null; then
+                        sleep 1
+                        if kill -0 "$PID" 2>/dev/null; then
+                            echo "Warning: Failed to kill process $PID"
+                        else
+                            echo "Process $PID forcefully terminated."
+                        fi
+                    else
+                        echo "Warning: Failed to send SIGKILL to process $PID"
+                    fi
+                fi
             else
-                echo "Process forcefully terminated."
+                echo "Warning: Failed to send SIGTERM to process $PID (may have already terminated)"
             fi
-        fi
+        done
     else
         echo "Aborted. Cannot start server while port $PORT is in use."
         exit 1
@@ -83,6 +115,6 @@ if [ -n "$PID" ]; then
 fi
 
 # Activate virtual environment and start server
-echo "Starting Foo Ball Service on port $PORT..."
+echo "Starting Foo Ball Service on $HOST:$PORT..."
 source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload
+uvicorn app.main:app --host "$HOST" --port "$PORT" --reload
