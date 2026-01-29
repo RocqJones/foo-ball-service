@@ -15,9 +15,9 @@ def cleanup_old_records(days: int = 7):
         dict: Summary of deleted records per collection
     """
     # Calculate the cutoff datetime (7 days ago)
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-    cutoff_datetime_str = cutoff_date.isoformat()
-    cutoff_date_str = cutoff_date.date().isoformat()
+    cutoff_datetime = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_datetime_str = cutoff_datetime.isoformat()
+    cutoff_date_str = cutoff_datetime.date().isoformat()
     
     logger.info(f"Starting cleanup of records older than {days} days (before {cutoff_datetime_str})")
     
@@ -61,7 +61,8 @@ def cleanup_old_records(days: int = 7):
         }
     
     # Clean up team_stats collection
-    # If team_stats has a date field, use cutoff_datetime_str for accurate comparison
+    # If team_stats has a date field, use cutoff_datetime_str for accurate comparison.
+    # Expected format: ISO datetime string (e.g., "2025-01-29T19:00:00+00:00")
     try:
         team_stats_col = get_collection("team_stats")
         # Check if team_stats has a date or timestamp field
