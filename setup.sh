@@ -28,13 +28,14 @@ if [ -d "venv" ]; then
     
     # Check if running in interactive mode
     if [[ ! -t 0 ]]; then
-        echo "Running in non-interactive mode. Skipping venv recreation."
-        echo "To recreate the venv, set RECREATE_VENV=1 environment variable."
+        echo "Running in non-interactive mode."
         if [[ "${RECREATE_VENV:-0}" == "1" ]]; then
             echo "RECREATE_VENV is set. Removing existing virtual environment..."
             rm -rf venv
             echo "Creating new virtual environment..."
             python3 -m venv venv
+        else
+            echo "Skipping venv recreation. To recreate, set RECREATE_VENV=1 environment variable."
         fi
     else
         read -p "Do you want to recreate it? (y/N): " -n 1 -r
