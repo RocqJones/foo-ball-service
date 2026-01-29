@@ -16,10 +16,9 @@ app = FastAPI(title="Foo Ball Service")
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
 
-logger.info("Foo Ball Service starting up...")
-
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Foo Ball Service starting up...")
     logger.info("Application startup complete")
 
 @app.on_event("shutdown")
