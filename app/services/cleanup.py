@@ -14,28 +14,31 @@ def cleanup_old_records(days: int = 7):
     Returns:
         dict: Summary of deleted records per collection
     """
-    # Calculate the cutoff date (7 days ago)
+    # Calculate the cutoff datetime (7 days ago)
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_datetime_str = cutoff_date.isoformat()
     cutoff_date_str = cutoff_date.date().isoformat()
     
-    logger.info(f"Starting cleanup of records older than {days} days (before {cutoff_date_str})")
+    logger.info(f"Starting cleanup of records older than {days} days (before {cutoff_datetime_str})")
     
     results = {
+        "cutoff_datetime": cutoff_datetime_str,
         "cutoff_date": cutoff_date_str,
         "days_retained": days,
         "collections_cleaned": {}
     }
     
     # Clean up fixtures collection
-    # fixture.date format is typically "2025-01-29T19:00:00+00:00" or "2025-01-29"
+    # fixture.date format is typically "2025-01-29T19:00:00+00:00" (ISO datetime string)
+    # Use cutoff_datetime_str for accurate comparison with datetime strings
     try:
         fixtures_col = get_collection("fixtures")
-        # Delete fixtures where the date is before the cutoff
+        # Delete fixtures where the date is before the cutoff datetime
         delete_result = fixtures_col.delete_many({
-            "fixture.date": {"$lt": cutoff_date_str}
+            "fixture.date": {"$lt": cutoff_datetime_str}
         })
         results["collections_cleaned"]["fixtures"] = delete_result.deleted_count
-        logger.info(f"Deleted {delete_result.deleted_count} fixtures older than {cutoff_date_str}")
+        logger.info(f"Deleted {delete_result.deleted_count} fixtures older than {cutoff_datetime_str}")
     except Exception as e:
         logger.error(f"Error cleaning fixtures collection: {str(e)}")
         results["collections_cleaned"]["fixtures"] = {
@@ -58,8 +61,7 @@ def cleanup_old_records(days: int = 7):
         }
     
     # Clean up team_stats collection
-    # If team_stats has a date field, add cleanup logic here
-    # Otherwise, you may want to clean based on a different criterion
+    # If team_stats has a date field, use cutoff_datetime_str for accurate comparison
     try:
         team_stats_col = get_collection("team_stats")
         # Check if team_stats has a date or timestamp field
@@ -72,10 +74,10 @@ def cleanup_old_records(days: int = 7):
                     break
         if date_field:
             delete_result = team_stats_col.delete_many({
-                date_field: {"$lt": cutoff_date_str}
+                date_field: {"$lt": cutoff_datetime_str}
             })
             results["collections_cleaned"]["team_stats"] = delete_result.deleted_count
-            logger.info(f"Deleted {delete_result.deleted_count} team_stats older than {cutoff_date_str} using field '{date_field}'")
+            logger.info(f"Deleted {delete_result.deleted_count} team_stats older than {cutoff_datetime_str} using field '{date_field}'")
         else:
             results["collections_cleaned"]["team_stats"] = "skipped - no date field found"
             logger.info("Skipped team_stats collection - no created_at/updated_at/computed_at timestamp field found")
