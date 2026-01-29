@@ -63,7 +63,7 @@ def cleanup_old_records(days: int = 7):
     try:
         team_stats_col = get_collection("team_stats")
         # Check if team_stats has a date or timestamp field
-        sample_doc = team_stats_col.find_one({}, {"created_at": 1, "updated_at": 1})
+        sample_doc = team_stats_col.find_one({}, {"created_at": 1, "updated_at": 1, "computed_at": 1})
         date_field = None
         if sample_doc:
             for field_name in ("created_at", "updated_at", "computed_at"):
