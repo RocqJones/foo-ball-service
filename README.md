@@ -139,23 +139,71 @@ Open the interactive docs:
 
 ### Endpoints
 
+All endpoints now return standardized responses with HTTP status codes:
+- **200 OK** - Successful request (with or without data)
+  - `statusCode: 200` - Data available
+  - `statusCode: 204` - No data available (e.g., no fixtures for today)
+- **500 INTERNAL SERVER ERROR** - Server error during processing
+
+#### Available Endpoints
+
 - `GET /health` — basic health check
 - `GET /fixtures/ingest` — triggers ingestion for today's fixtures (same as the daily job)
 - `GET /predictions/today` — generates + returns ranked predictions for today
+  - Query param: `force_refresh=true` to regenerate predictions
 - `GET /predictions/analysis` — pandas-powered analysis with best bets by category
 - `GET /predictions/top-picks?limit=10` — top picks using composite scoring
 
-Example response shape for `/predictions/today`:
+### Response Format
+
+All successful responses with data (200) include:
+```json
+{
+  "statusCode": 200,
+  "status": "success",
+  "message": "Retrieved successfully",
+  ...data fields...
+}
+```
+
+Empty/no data responses (200 with statusCode 204):
+```json
+{
+  "statusCode": 204,
+  "status": "no_data",
+  "message": "No predictions available for today. No fixtures found for tracked leagues.",
+  "count": 0,
+  "predictions": []
+}
+```
+
+Error responses (500):
+```json
+{
+  "statusCode": 500,
+  "status": "error",
+  "message": "Failed to generate predictions: <error details>"
+}
+```
+
+Example response shape for `/predictions/today` (200 OK):
 
 ```json
 {
+  "statusCode": 200,
+  "status": "success",
+  "message": "Retrieved successfully",
   "count": 30,
   "predictions": [{
     "fixture_id": 1482325,
     "match": "Welwalo Adigrat Uni vs Sheger Ketema",
     "league": "Premier League",
+    "league_logo": "https://media.api-sports.io/football/leagues/39.png",
+    "league_flag": "https://media.api-sports.io/flags/gb.svg",
     "home_team": "Welwalo Adigrat Uni",
+    "home_team_logo": "https://media.api-sports.io/football/teams/123.png",
     "away_team": "Sheger Ketema",
+    "away_team_logo": "https://media.api-sports.io/football/teams/456.png",
     "home_win_probability": 0.741,
     "home_win_confidence": "HIGH",
     "draw_probability": 0.144,
@@ -178,11 +226,19 @@ Example response shape for `/predictions/today`:
 ```
 
 The `/predictions/analysis` endpoint provides:
-- `best_home_wins` — top 5 high-confidence home win predictions
-- `best_goals_bets` — top 5 over/under 2.5 predictions with clear recommendations
-- `best_btts` — top 5 both teams to score predictions
-- `best_value_bets` — top 5 predictions with positive value scores
+- `best_home_wins` — top 5 high-confidence home win predictions (includes team/league logos)
+- `best_goals_bets` — top 5 over/under 2.5 predictions with clear recommendations (includes team/league logos)
+- `best_btts` — top 5 both teams to score predictions (includes team/league logos)
+- `best_value_bets` — top 5 predictions with positive value scores (includes team/league logos)
 - `summary` — statistics including league distribution, confidence levels, etc.
+
+All prediction endpoints include visual assets for beautiful frontend displays (available when predictions are generated or refreshed):
+- `league_logo` — League logo URL (e.g., Premier League crest)
+- `league_flag` — Country flag URL for the league
+- `home_team_logo` — Home team logo/crest URL
+- `away_team_logo` — Away team logo/crest URL
+
+Note: Cached predictions created before this feature may return `null` for these fields. Regenerate predictions to populate visual assets.
 
 ## Data & collections
 
