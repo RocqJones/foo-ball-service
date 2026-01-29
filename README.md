@@ -139,16 +139,60 @@ Open the interactive docs:
 
 ### Endpoints
 
+All endpoints now return standardized responses with HTTP status codes:
+- **200 OK** - Successful request (with or without data)
+  - `statusCode: 200` - Data available
+  - `statusCode: 204` - No data available (e.g., no fixtures for today)
+- **500 INTERNAL SERVER ERROR** - Server error during processing
+
+#### Available Endpoints
+
 - `GET /health` — basic health check
 - `GET /fixtures/ingest` — triggers ingestion for today's fixtures (same as the daily job)
 - `GET /predictions/today` — generates + returns ranked predictions for today
+  - Query param: `force_refresh=true` to regenerate predictions
 - `GET /predictions/analysis` — pandas-powered analysis with best bets by category
 - `GET /predictions/top-picks?limit=10` — top picks using composite scoring
 
-Example response shape for `/predictions/today`:
+### Response Format
+
+All successful responses with data (200) include:
+```json
+{
+  "statusCode": 200,
+  "status": "success",
+  "message": "Retrieved successfully",
+  ...data fields...
+}
+```
+
+Empty/no data responses (200 with statusCode 204):
+```json
+{
+  "statusCode": 204,
+  "status": "no_data",
+  "message": "No predictions available for today. No fixtures found for tracked leagues.",
+  "count": 0,
+  "predictions": []
+}
+```
+
+Error responses (500):
+```json
+{
+  "statusCode": 500,
+  "status": "error",
+  "message": "Failed to generate predictions: <error details>"
+}
+```
+
+Example response shape for `/predictions/today` (200 OK):
 
 ```json
 {
+  "statusCode": 200,
+  "status": "success",
+  "message": "Retrieved successfully",
   "count": 30,
   "predictions": [{
     "fixture_id": 1482325,
