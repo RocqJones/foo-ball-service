@@ -63,6 +63,24 @@ It ingests fixtures from the **API-Football** API into **MongoDB**, then generat
 
 ## Setup
 
+### Quick Setup (Recommended)
+
+Use the automated setup script:
+
+```bash
+# Run the setup script
+./setup.sh
+```
+
+This will:
+- Check Python installation
+- Create virtual environment
+- Install all dependencies
+- Create logs directory
+- Check for .env file
+
+### Manual Setup
+
 1) Create & activate a virtualenv
 
 ```bash
@@ -96,6 +114,39 @@ DB_NAME=foo_ball_service
 ODDS_API_KEY=
 ```
 
+## Starting the Server
+
+### Quick Start (Recommended)
+
+Use the start script:
+
+```bash
+# Start the server (automatically handles port conflicts)
+./start_server.sh
+```
+
+This will:
+- Check if virtual environment exists (creates if needed)
+- Kill any existing process on port 8000
+- Activate virtual environment
+- Start the server with auto-reload
+
+### Manual Start
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Start the server
+uvicorn app.main:app --reload
+```
+
+**Common Issues:**
+- `[Errno 48] Address already in use`: Port 8000 is occupied. Use `./start_server.sh` which handles this automatically, or manually kill the process:
+  ```bash
+  kill -9 $(lsof -ti:8000)
+  ```
+
 ## Configuration
 
 ### League filtering (no GUI)
@@ -126,9 +177,18 @@ Notes:
 
 ## Running the API
 
-Start the FastAPI server:
+The API server provides access to all predictions and data management features.
+
+### Start the Server
 
 ```bash
+./start_server.sh
+```
+
+Or manually:
+
+```bash
+source venv/bin/activate
 uvicorn app.main:app --reload
 ```
 
@@ -147,12 +207,21 @@ All endpoints now return standardized responses with HTTP status codes:
 
 #### Available Endpoints
 
+**Predictions & Data:**
 - `GET /health` — basic health check
 - `GET /fixtures/ingest` — triggers ingestion for today's fixtures (same as the daily job)
 - `GET /predictions/today` — generates + returns ranked predictions for today
   - Query param: `force_refresh=true` to regenerate predictions
 - `GET /predictions/analysis` — pandas-powered analysis with best bets by category
 - `GET /predictions/top-picks?limit=10` — top picks using composite scoring
+
+**Database Management:**
+- `POST /database/cleanup` — delete records older than specified days
+  - Body: `{"days": 7}` (default: 7)
+  - See [CLEANUP_API.md](CLEANUP_API.md) for details
+- `GET /database/stats` — get database statistics (record counts, date ranges)
+
+For complete database cleanup documentation, see **[CLEANUP_API.md](CLEANUP_API.md)**
 
 ### Response Format
 
@@ -289,6 +358,59 @@ Common causes:
 
 - Confirm MongoDB is running and `MONGO_URI` is correct.
 - If using Mongo Atlas, ensure your IP allow-list and credentials are set.
+
+## Logging and Monitoring
+
+The application includes comprehensive logging for monitoring, debugging, and security auditing.
+
+### Log Files
+
+All logs are stored in the `logs/` directory:
+- `logs/app.log` - General application logs (startup, operations, errors)
+- `logs/api_requests.log` - All API requests with IP, status, response time
+- `logs/security.log` - Security events (unauthorized access, errors)
+
+### Quick Log Commands
+
+```bash
+# View logs in real-time
+tail -f logs/app.log              # Application logs
+tail -f logs/api_requests.log     # API requests
+tail -f logs/security.log         # Security events
+
+# Search for errors
+grep "ERROR" logs/app.log
+
+# Count today's requests
+grep "$(date +%Y-%m-%d)" logs/api_requests.log | wc -l
+
+# Monitor cleanup operations
+grep -i "cleanup" logs/app.log
+```
+
+For complete logging documentation, see **[LOGGING.md](LOGGING.md)**
+
+### Log Rotation
+
+Logs automatically rotate at 10MB with 5 backups per file (~60MB total per log type).
+
+## Database Management
+
+### Cleanup Old Records
+
+To manage database storage, use the cleanup API:
+
+```bash
+# Clean records older than 7 days (default)
+curl -X POST http://localhost:8000/database/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"days": 7}'
+
+# Check database stats first
+curl http://localhost:8000/database/stats
+```
+
+See [CLEANUP_API.md](CLEANUP_API.md) for complete documentation.
 
 ## Development notes
 
