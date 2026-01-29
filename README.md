@@ -106,6 +106,10 @@ Add:
 # Required
 API_FOOTBALL_KEY=your_key_here
 
+# Admin API Key (REQUIRED for database cleanup/stats endpoints)
+# Generate a secure key: openssl rand -hex 32
+ADMIN_API_KEY=your_secure_admin_key_here
+
 # Optional (defaults shown)
 MONGO_URI=mongodb://localhost:27017
 DB_NAME=foo_ball_service
@@ -217,9 +221,13 @@ All endpoints now return standardized responses with HTTP status codes:
 
 **Database Management:**
 - `POST /database/cleanup` — delete records older than specified days
+  - **Authentication Required**: Include `X-API-Key` header with admin API key
   - Body: `{"days": 7}` (default: 7)
   - See [CLEANUP_API.md](CLEANUP_API.md) for details
 - `GET /database/stats` — get database statistics (record counts, date ranges)
+  - **Authentication Required**: Include `X-API-Key` header with admin API key
+
+⚠️ **Security Notice**: The database cleanup and stats endpoints require admin authentication. Never expose these endpoints publicly. See [CLEANUP_API.md](CLEANUP_API.md) for security best practices.
 
 For complete database cleanup documentation, see **[CLEANUP_API.md](CLEANUP_API.md)**
 
@@ -398,19 +406,30 @@ Logs automatically rotate at 10MB with 5 backups per file (~60MB total per log t
 
 ### Cleanup Old Records
 
+⚠️ **Authentication Required**: Database management endpoints require admin authentication.
+
 To manage database storage, use the cleanup API:
 
 ```bash
+# Set your admin API key
+export ADMIN_API_KEY="your_secure_admin_key_here"
+
 # Clean records older than 7 days (default)
 curl -X POST http://localhost:8000/database/cleanup \
+  -H "X-API-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"days": 7}'
 
 # Check database stats first
-curl http://localhost:8000/database/stats
+curl http://localhost:8000/database/stats \
+  -H "X-API-Key: $ADMIN_API_KEY"
 ```
 
-See [CLEANUP_API.md](CLEANUP_API.md) for complete documentation.
+See [CLEANUP_API.md](CLEANUP_API.md) for complete documentation including:
+- Security best practices
+- Network restrictions
+- API key management
+- Automation examples
 
 ## Development notes
 
