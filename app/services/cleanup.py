@@ -64,16 +64,21 @@ def cleanup_old_records(days: int = 7):
         team_stats_col = get_collection("team_stats")
         # Check if team_stats has a date or timestamp field
         sample_doc = team_stats_col.find_one()
-        if sample_doc and ("created_at" in sample_doc or "updated_at" in sample_doc):
-            date_field = "created_at" if "created_at" in sample_doc else "updated_at"
+        date_field = None
+        if sample_doc:
+            for field_name in ("created_at", "updated_at", "computed_at"):
+                if field_name in sample_doc:
+                    date_field = field_name
+                    break
+        if date_field:
             delete_result = team_stats_col.delete_many({
                 date_field: {"$lt": cutoff_date_str}
             })
             results["collections_cleaned"]["team_stats"] = delete_result.deleted_count
-            logger.info(f"Deleted {delete_result.deleted_count} team_stats older than {cutoff_date_str}")
+            logger.info(f"Deleted {delete_result.deleted_count} team_stats older than {cutoff_date_str} using field '{date_field}'")
         else:
             results["collections_cleaned"]["team_stats"] = "skipped - no date field found"
-            logger.info("Skipped team_stats collection - no date/timestamp field found")
+            logger.info("Skipped team_stats collection - no created_at/updated_at/computed_at timestamp field found")
     except Exception as e:
         logger.error(f"Error cleaning team_stats collection: {str(e)}")
         results["collections_cleaned"]["team_stats"] = {
