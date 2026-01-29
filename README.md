@@ -127,9 +127,9 @@ Use the start script:
 
 This will:
 - Check if virtual environment exists (creates if needed)
-- Kill any existing process on port 8000
+- Check for any process listening on the configured port (from `$PORT`, default `8000`) and prompt to terminate it before starting
 - Activate virtual environment
-- Start the server with auto-reload
+- Start the server with auto-reload on the configured port
 
 ### Manual Start
 
