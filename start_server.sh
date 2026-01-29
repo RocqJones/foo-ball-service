@@ -51,7 +51,12 @@ fi
 
 # Check for existing process on the specified port
 echo "Checking for existing processes on port $PORT..."
-PIDS=$(lsof -ti:"$PORT" 2>/dev/null)
+if command -v lsof >/dev/null 2>&1; then
+    PIDS=$(lsof -ti:"$PORT" 2>/dev/null)
+else
+    echo "Warning: 'lsof' command not found. Skipping port conflict check for port $PORT."
+    PIDS=""
+fi
 if [ -n "$PIDS" ]; then
     # Convert PIDs to array for proper handling using mapfile
     mapfile -t PID_ARRAY <<< "$PIDS"
