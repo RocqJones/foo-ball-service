@@ -93,15 +93,20 @@ def ingest_todays_fixtures():
     """
     Trigger the daily ingestion job to fetch today's fixtures from the API.
     This is equivalent to running: python3 -m app.jobs.daily_run
+    
+    Returns the number of fixtures ingested for today.
     """
     try:
-        daily_run()
+        today = date.today().isoformat()
+        fixtures_count = daily_run()
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "statusCode": 200,
                 "status": "success",
-                "message": f"Daily ingestion complete. Fixtures for {date.today().isoformat()} have been ingested."
+                "message": f"Daily ingestion complete. Fixtures for {today} have been ingested.",
+                "results": fixtures_count,
+                "date": today
             }
         )
     except Exception as e:
