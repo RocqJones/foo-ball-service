@@ -19,7 +19,9 @@ class Settings:
         {"name": 'Premier League', "country": 'England'},
         {"name": 'La Liga', "country": 'Spain'},
         {"name": 'Bundesliga', "country": 'Germany'},
-        {"name": 'UEFA Champions League', "country": 'World'}
+        {"name": 'UEFA Champions League', "country": 'World'},
+        {"name": 'Serie A', "country": 'Italy'},
+        {"name": 'Championship', "country": 'England'}
     ]
 
     # Default prediction limit (None = no limit)
