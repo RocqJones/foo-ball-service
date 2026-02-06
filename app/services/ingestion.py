@@ -1,7 +1,16 @@
 from app.data_sources.api_football import get_fixtures
 from app.db.mongo import get_collection
 
-def ingest_fixtures(date: str):
+def ingest_fixtures(date: str) -> int:
+    """
+    Ingest fixtures for a given date.
+    
+    Args:
+        date: Date string in ISO format (YYYY-MM-DD)
+    
+    Returns:
+        Number of fixtures ingested
+    """
     fixtures_col = get_collection("fixtures")
     fixtures = get_fixtures(date)
 
@@ -11,9 +20,14 @@ def ingest_fixtures(date: str):
     print(f"Deleted {delete_result.deleted_count} existing fixtures for {date}")
     
     # Insert all new fixtures
+    ingested_count = 0
     for fixture in fixtures:
-        fixtures_col.update_one(
+        result = fixtures_col.update_one(
             {"fixture_id": fixture["fixture"]["id"]},
             {"$set": fixture},
             upsert=True
         )
+        if result.upserted_id or result.modified_count > 0:
+            ingested_count += 1
+    
+    return ingested_count
