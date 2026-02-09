@@ -7,9 +7,19 @@ HEADERS = {
     "x-apisports-key": settings.API_FOOTBALL_KEY
 }
 
-def get_fixtures(date: str):
+def get_fixtures(date: str, timezone: str = "Europe/London"):
+    """
+    Fetches fixtures for a given date and timezone.
+    
+    Args:
+        date: Date in YYYY-MM-DD format.
+        timezone: Timezone string, e.g., "Europe/London".
+    
+    Returns:
+        List of fixtures.
+    """
     url = f"{BASE_URL}/fixtures"
-    params = {"date": date}
+    params = {"date": date, "timezone": timezone}
 
     response = requests.get(url, headers=HEADERS, params=params, timeout=15)
     response.raise_for_status()

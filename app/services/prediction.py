@@ -3,6 +3,7 @@ from app.db.mongo import get_collection
 from app.models.rule_based import predict_match_outcome, predict_over_under, predict_btts
 from app.services.ranking import rank_predictions
 from app.config.settings import settings
+from app.utils.logger import logger
 from pymongo import UpdateOne
 import math
 import random
@@ -26,6 +27,53 @@ def get_persisted_predictions_today():
     ))
     
     return predictions
+
+
+def _get_smart_fallback_stats(team_id: int, league_name: str = None) -> dict:
+    """
+    Generate smarter fallback stats based on league context and team ID.
+    
+    Uses league-specific baselines and consistent seeding for reproducibility.
+    Better than random stats because it reflects league characteristics.
+    
+    Args:
+        team_id: Team ID for consistent seeding
+        league_name: League name to determine baseline stats
+    
+    Returns:
+        Dictionary with form, goals_for, goals_against, games_played
+    """
+    # League-specific baselines (based on real football statistics)
+    league_baselines = {
+        "Premier League": {"avg_goals": 1.35, "avg_form": 1.45, "variance": 0.4},
+        "La Liga": {"avg_goals": 1.25, "avg_form": 1.40, "variance": 0.35},
+        "Bundesliga": {"avg_goals": 1.55, "avg_form": 1.50, "variance": 0.45},
+        "Serie A": {"avg_goals": 1.20, "avg_form": 1.35, "variance": 0.30},
+        "Ligue 1": {"avg_goals": 1.25, "avg_form": 1.38, "variance": 0.35},
+        "UEFA Champions League": {"avg_goals": 1.45, "avg_form": 1.70, "variance": 0.40},
+        "Championship": {"avg_goals": 1.30, "avg_form": 1.40, "variance": 0.38},
+        "DEFAULT": {"avg_goals": 1.30, "avg_form": 1.40, "variance": 0.38}
+    }
+    
+    # Get league baseline or use default
+    baseline = league_baselines.get(league_name, league_baselines["DEFAULT"])
+    
+    # Use team_id as seed for consistency (same team always gets same fallback)
+    random.seed(team_id)
+    
+    # Generate stats around league baseline with variance
+    goals_for = max(0.5, random.gauss(baseline["avg_goals"], baseline["variance"]))
+    goals_against = max(0.5, random.gauss(baseline["avg_goals"], baseline["variance"]))
+    form = max(0.3, min(2.8, random.gauss(baseline["avg_form"], baseline["variance"] * 0.8)))
+    
+    return {
+        "form": round(form, 2),
+        "goals_for": round(goals_for, 2),
+        "goals_against": round(goals_against, 2),
+        "games_played": 5,  # Indicate limited data
+        "is_fallback": True
+    }
+
 
 def predict_today():
     fixtures_col = get_collection("fixtures")
@@ -72,8 +120,11 @@ def predict_today():
         query["$or"] = league_entry_filters
 
     fixtures = list(fixtures_col.find(query))
+    
+    logger.info(f"Found {len(fixtures)} fixtures for {date_prefix} after filtering by tracked leagues")
 
     if not fixtures:
+        logger.warning(f"No fixtures found for {date_prefix} in tracked leagues")
         return []
 
     # Pre-fetch all team stats (one query instead of 2N queries)
@@ -85,34 +136,26 @@ def predict_today():
     team_stats_col = get_collection("team_stats")
     team_stats_list = list(team_stats_col.find({"team_id": {"$in": list(team_ids)}}))
     team_stats_map = {ts["team_id"]: ts for ts in team_stats_list}
+    
+    logger.info(f"Retrieved stats for {len(team_stats_map)}/{len(team_ids)} teams from database")
 
     predictions = []
 
     for f in fixtures:
         home = f["teams"]["home"]
         away = f["teams"]["away"]
+        league_name = f.get("league", {}).get("name", "Unknown")
 
-        # Get stats from pre-fetched map or use seeded random fallback
+        # Get stats from pre-fetched map or use smart fallback
         home_stats = team_stats_map.get(home["id"])
         if not home_stats:
-            # Use seeded randomization based on team_id for consistency
-            # Realistic football stats: avg team scores ~1.3 goals/game, concedes ~1.3
-            random.seed(home["id"])
-            home_stats = {
-                "form": round(random.uniform(0.8, 2.5), 2),
-                "goals_for": round(random.uniform(0.6, 2.2), 2),    # Average ~1.4
-                "goals_against": round(random.uniform(0.6, 2.2), 2)  # Average ~1.4
-            }
+            home_stats = _get_smart_fallback_stats(home["id"], league_name)
+            logger.debug(f"Using fallback stats for home team: {home['name']} (ID: {home['id']})")
         
         away_stats = team_stats_map.get(away["id"])
         if not away_stats:
-            # Use seeded randomization based on team_id for consistency
-            random.seed(away["id"])
-            away_stats = {
-                "form": round(random.uniform(0.8, 2.5), 2),
-                "goals_for": round(random.uniform(0.6, 2.2), 2),    # Average ~1.4
-                "goals_against": round(random.uniform(0.6, 2.2), 2)  # Average ~1.4
-            }
+            away_stats = _get_smart_fallback_stats(away["id"], league_name)
+            logger.debug(f"Using fallback stats for away team: {away['name']} (ID: {away['id']})")
 
         # Compute probabilities for all match outcomes (home win, draw, away win)
         home_win_prob, draw_prob, away_win_prob = predict_match_outcome(home_stats, away_stats)

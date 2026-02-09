@@ -35,4 +35,6 @@ class Settings:
 
     DEFAULT_LIMIT = 35
 
+    TIMEZONE = "Europe/London"
+
 settings = Settings()
