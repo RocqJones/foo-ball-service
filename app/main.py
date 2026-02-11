@@ -443,7 +443,7 @@ async def get_matches(request: MatchesRequest):
         # Auto-fetch if empty (transparent to FE)
         if existing_count == 0:
             logger.info(f"No matches for {competition_code} in DB, auto-fetching from source...")
-            ingest_result = await ingest_matches_for_competition(competition_code)
+            ingest_result = ingest_matches_for_competition(competition_code)
             if not ingest_result.get("success"):
                 return JSONResponse(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
