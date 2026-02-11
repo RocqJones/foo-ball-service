@@ -1,8 +1,9 @@
 from fastapi import FastAPI, status, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
+from pydantic import BaseModel
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Optional
 from app.config.settings import Settings
 from app.services.prediction_v2 import get_predictions_today as predict_today_v2, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
@@ -280,11 +281,258 @@ def get_predictions_top_picks_endpoint(limit: int = Settings.DEFAULT_LIMIT):
             }
         )
 
+# ============================================================================
+# PUBLIC ENDPOINTS - Smart Auto-Fetch from Source
+# ============================================================================
+
+@app.get("/competitions")
+async def get_competitions():
+    """
+    Get all available competitions.
+    
+    Smart auto-fetch logic:
+    - First checks if competitions exist in database
+    - If empty, automatically fetches from source (transparent to FE)
+    - Returns competitions with clean response (no source implementation details)
+    
+    Frontend Usage:
+    - Use this to get competition list for filters/dropdowns
+    - Extract 'code' field to use in POST /matches
+    
+    Returns:
+        {
+            "status": "success",
+            "count": 6,
+            "competitions": [
+                {
+                    "code": "PL",
+                    "name": "Premier League",
+                    "emblem": "https://...",
+                    "area": {"name": "England", "code": "ENG"},
+                    "currentSeason": {...}
+                }
+            ]
+        }
+    """
+    try:
+        from app.db.mongo import get_collection
+        from app.services.ingestion import ingest_competitions
+        
+        competitions_col = get_collection("competitions")
+        
+        # Check if we have competitions in DB
+        existing_count = competitions_col.count_documents({})
+        
+        # Auto-fetch if empty (transparent to FE)
+        if existing_count == 0:
+            logger.info("No competitions in DB, auto-fetching from source...")
+            ingest_result = await ingest_competitions()
+            if not ingest_result.get("success"):
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "status": "error",
+                        "message": "Failed to fetch competitions from source",
+                        "details": ingest_result.get("error")
+                    }
+                )
+            logger.info(f"Auto-fetched {ingest_result.get('inserted', 0)} competitions")
+        
+        # Get competitions from DB (clean response, no source details)
+        competitions = list(competitions_col.find(
+            {},
+            {
+                "_id": 0,
+                "code": 1,
+                "name": 1,
+                "type": 1,
+                "emblem": 1,
+                "area": 1,
+                "currentSeason": 1,
+                "numberOfAvailableSeasons": 1
+            }
+        ).sort("name", 1))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "count": len(competitions),
+                "competitions": competitions
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get competitions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Failed to retrieve competitions"
+            }
+        )
+
+
+class MatchesRequest(BaseModel):
+    """Request model for POST /matches"""
+    competition_code: str
+    status_filter: Optional[str] = None  # SCHEDULED, TIMED, FINISHED, LIVE
+    date_from: Optional[str] = None  # YYYY-MM-DD
+    date_to: Optional[str] = None  # YYYY-MM-DD
+    limit: Optional[int] = 100
+
+
+@app.post("/matches")
+async def get_matches(request: MatchesRequest):
+    """
+    Get matches for a specific competition (smart auto-fetch).
+    
+    Smart auto-fetch logic:
+    - Checks if matches exist for the competition code
+    - If empty, automatically fetches from source using competition code
+    - Avoids duplicates and unnecessary source calls
+    - Returns clean response (no source implementation details)
+    
+    Request Body:
+        {
+            "competition_code": "PL",          // Required: from /competitions
+            "status_filter": "SCHEDULED",      // Optional: SCHEDULED, TIMED, FINISHED, LIVE
+            "date_from": "2026-02-11",         // Optional: YYYY-MM-DD
+            "date_to": "2026-02-15",           // Optional: YYYY-MM-DD
+            "limit": 100                       // Optional: default 100, max 500
+        }
+    
+    Response:
+        {
+            "status": "success",
+            "count": 38,
+            "matches": [
+                {
+                    "id": 538036,
+                    "utcDate": "2026-02-14T15:00:00Z",
+                    "status": "SCHEDULED",
+                    "homeTeam": {"name": "Arsenal FC"},
+                    "awayTeam": {"name": "Liverpool FC"},
+                    "competition": {"code": "PL", "name": "Premier League"}
+                }
+            ]
+        }
+    """
+    try:
+        from app.db.mongo import get_collection
+        from app.services.ingestion import ingest_matches_for_competition
+        
+        competition_code = request.competition_code.upper()
+        matches_col = get_collection("matches")
+        competitions_col = get_collection("competitions")
+        
+        # Validate competition exists
+        competition = competitions_col.find_one({"code": competition_code})
+        if not competition:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": "error",
+                    "message": f"Competition '{competition_code}' not found. Use GET /competitions to see available competitions."
+                }
+            )
+        
+        # Check if we have matches for this competition
+        existing_count = matches_col.count_documents({"competition.code": competition_code})
+        
+        # Auto-fetch if empty (transparent to FE)
+        if existing_count == 0:
+            logger.info(f"No matches for {competition_code} in DB, auto-fetching from source...")
+            ingest_result = await ingest_matches_for_competition(competition_code)
+            if not ingest_result.get("success"):
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "status": "error",
+                        "message": f"Failed to fetch matches for {competition_code}",
+                        "details": ingest_result.get("error")
+                    }
+                )
+            logger.info(f"Auto-fetched {ingest_result.get('inserted', 0)} matches for {competition_code}")
+        
+        # Build query for filtering
+        query = {"competition.code": competition_code}
+        
+        if request.status_filter:
+            statuses = [s.strip().upper() for s in request.status_filter.split(",")]
+            query["status"] = {"$in": statuses}
+        
+        if request.date_from or request.date_to:
+            date_query = {}
+            if request.date_from:
+                date_query["$gte"] = f"{request.date_from}T00:00:00Z"
+            if request.date_to:
+                date_query["$lte"] = f"{request.date_to}T23:59:59Z"
+            query["utcDate"] = date_query
+        
+        # Limit validation
+        limit = min(request.limit or 100, 500)
+        
+        # Get matches from DB (clean response, no H2H data)
+        matches = list(matches_col.find(
+            query,
+            {
+                "_id": 0,
+                "id": 1,
+                "utcDate": 1,
+                "status": 1,
+                "matchday": 1,
+                "stage": 1,
+                "competition": 1,
+                "season": 1,
+                "homeTeam": 1,
+                "awayTeam": 1,
+                "score": 1
+                # h2h excluded - too large for list view
+            }
+        ).sort("utcDate", 1).limit(limit))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "count": len(matches),
+                "competition": {
+                    "code": competition_code,
+                    "name": competition.get("name")
+                },
+                "matches": matches
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get matches: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Failed to retrieve matches"
+            }
+        )
+
+# ============================================================================
+# ADMIN ENDPOINTS (Authentication Required)
+# ============================================================================
+
 @app.post("/database/cleanup", dependencies=[Depends(verify_admin_key)])
 def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
     """
     Delete all records older than the specified number of days.
     This helps manage database storage by removing old data.
+    
+    **PROTECTED COLLECTIONS (never cleaned):**
+    - competitions: Master data, cached permanently for performance
+    - matches: Scheduled matches, cached with smart ingestion logic
+    
+    **CLEANED COLLECTIONS:**
+    - fixtures: Legacy API-Football data (can be re-fetched)
+    - predictions: Daily predictions (can be regenerated)
+    - team_stats: Team statistics (can be recomputed)
     
     **Authentication Required**: This endpoint requires admin authentication.
     Include the admin API key in the X-API-Key header.
