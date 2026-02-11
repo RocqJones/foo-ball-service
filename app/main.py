@@ -326,7 +326,7 @@ async def get_competitions():
         # Auto-fetch if empty (transparent to FE)
         if existing_count == 0:
             logger.info("No competitions in DB, auto-fetching from source...")
-            ingest_result = await ingest_competitions()
+            ingest_result = ingest_competitions()
             if not ingest_result.get("success"):
                 return JSONResponse(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
