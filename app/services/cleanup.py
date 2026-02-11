@@ -7,6 +7,15 @@ def cleanup_old_records(days: int = 7):
     """
     Delete all records older than the specified number of days.
     
+    PROTECTED COLLECTIONS (never cleaned):
+    - competitions: Master data, cached permanently for performance
+    - matches: Scheduled matches, cached with smart ingestion logic
+    
+    CLEANED COLLECTIONS:
+    - fixtures: Legacy API-Football data (can be re-fetched)
+    - predictions: Daily predictions (can be regenerated)
+    - team_stats: Team statistics (can be recomputed)
+    
     Args:
         days: Number of days to retain. Records older than this will be deleted.
               Default is 7 days.
@@ -20,6 +29,7 @@ def cleanup_old_records(days: int = 7):
     cutoff_date_str = cutoff_datetime.date().isoformat()
     
     logger.info(f"Starting cleanup of records older than {days} days (before {cutoff_datetime_str})")
+    logger.info("Protected collections: competitions, matches (will NOT be cleaned)")
     
     results = {
         "cutoff_datetime": cutoff_datetime_str,
@@ -105,10 +115,60 @@ def get_database_stats():
     and date ranges.
     
     Returns:
-        dict: Statistics for each collection
+        dict: Statistics for each collection including:
+        - competitions: Football-Data.org competitions (protected, permanent cache)
+        - matches: Football-Data.org matches (protected, smart cached)
+        - fixtures: Legacy API-Football fixtures (cleanable)
+        - predictions: Daily predictions (cleanable)
+        - team_stats: Team statistics (cleanable)
     """
     stats = {}
     
+    # NEW: Competitions collection (Football-Data.org)
+    try:
+        competitions_col = get_collection("competitions")
+        competitions_count = competitions_col.count_documents({})
+        oldest_comp = competitions_col.find_one(
+            sort=[("ingested_at", 1)]
+        )
+        newest_comp = competitions_col.find_one(
+            sort=[("ingested_at", -1)]
+        )
+        
+        stats["competitions"] = {
+            "total_count": competitions_count,
+            "oldest_ingested": oldest_comp.get("ingested_at") if oldest_comp else None,
+            "newest_ingested": newest_comp.get("ingested_at") if newest_comp else None,
+            "status": "PROTECTED - permanent cache, never cleaned"
+        }
+    except Exception as e:
+        stats["competitions"] = {"error": str(e)}
+    
+    # NEW: Matches collection (Football-Data.org)
+    try:
+        matches_col = get_collection("matches")
+        matches_count = matches_col.count_documents({})
+        scheduled_count = matches_col.count_documents({"status": {"$in": ["SCHEDULED", "TIMED"]}})
+        matches_with_h2h = matches_col.count_documents({"h2h": {"$exists": True}})
+        oldest_match = matches_col.find_one(
+            sort=[("utcDate", 1)]
+        )
+        newest_match = matches_col.find_one(
+            sort=[("utcDate", -1)]
+        )
+        
+        stats["matches"] = {
+            "total_count": matches_count,
+            "scheduled_count": scheduled_count,
+            "with_h2h_count": matches_with_h2h,
+            "oldest_date": oldest_match.get("utcDate") if oldest_match else None,
+            "newest_date": newest_match.get("utcDate") if newest_match else None,
+            "status": "PROTECTED - smart cached, never cleaned"
+        }
+    except Exception as e:
+        stats["matches"] = {"error": str(e)}
+    
+    # Legacy: Fixtures collection (API-Football)
     try:
         fixtures_col = get_collection("fixtures")
         fixtures_count = fixtures_col.count_documents({})
@@ -122,11 +182,13 @@ def get_database_stats():
         stats["fixtures"] = {
             "total_count": fixtures_count,
             "oldest_date": oldest_fixture.get("fixture", {}).get("date") if oldest_fixture else None,
-            "newest_date": newest_fixture.get("fixture", {}).get("date") if newest_fixture else None
+            "newest_date": newest_fixture.get("fixture", {}).get("date") if newest_fixture else None,
+            "status": "cleanable - legacy data"
         }
     except Exception as e:
         stats["fixtures"] = {"error": str(e)}
     
+    # Predictions collection
     try:
         predictions_col = get_collection("predictions")
         predictions_count = predictions_col.count_documents({})
@@ -140,17 +202,20 @@ def get_database_stats():
         stats["predictions"] = {
             "total_count": predictions_count,
             "oldest_date": oldest_prediction.get("created_at") if oldest_prediction else None,
-            "newest_date": newest_prediction.get("created_at") if newest_prediction else None
+            "newest_date": newest_prediction.get("created_at") if newest_prediction else None,
+            "status": "cleanable - regenerated daily"
         }
     except Exception as e:
         stats["predictions"] = {"error": str(e)}
     
+    # Team stats collection
     try:
         team_stats_col = get_collection("team_stats")
         team_stats_count = team_stats_col.count_documents({})
         
         stats["team_stats"] = {
-            "total_count": team_stats_count
+            "total_count": team_stats_count,
+            "status": "cleanable - recomputed from matches"
         }
     except Exception as e:
         stats["team_stats"] = {"error": str(e)}

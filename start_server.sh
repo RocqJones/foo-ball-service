@@ -58,8 +58,8 @@ else
     PIDS=""
 fi
 if [ -n "$PIDS" ]; then
-    # Convert PIDs to array for proper handling using mapfile
-    mapfile -t PID_ARRAY <<< "$PIDS"
+    # Convert PIDs to array for proper handling
+    IFS=$'\n' read -d '' -r -a PID_ARRAY <<< "$PIDS"
     PID_COUNT=${#PID_ARRAY[@]}
     
     if [ "$PID_COUNT" -eq 1 ]; then
