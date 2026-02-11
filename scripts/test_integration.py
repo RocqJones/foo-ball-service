@@ -19,8 +19,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from app.data_sources.football_data_api import (
     get_competitions,
-    get_scheduled_matches,
-    get_head_to_head
 )
 from app.services.ingestion import (
     ingest_competitions,
