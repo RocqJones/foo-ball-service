@@ -1,457 +1,471 @@
-# Foo Ball Service - Develop
+# Foo Ball Service
+
+A football match prediction service powered by **Football-Data.org v4 API** with head-to-head (H2H) enhanced predictions.
 
 ## What it does
 
-- **Ingest fixtures** for a given date from API-Football → stores documents in MongoDB `fixtures` collection.
-- **Predict today's matches** from stored fixtures:
-  - **Match outcome probabilities** with confidence levels (HIGH/MEDIUM/LOW):
-    - Home win probability
-    - Draw probability
-    - Away win probability
-    - Plus a `predicted_outcome` field showing the most likely result
-  - **Smart over/under 2.5 goals recommendation** (automatically picks best bet: Over or Under)
-  - **BTTS (Both Teams To Score)** probability - predicts if both teams will score at least 1 goal each
-  - Value score (model probability vs market odds)
-- **Pandas-powered analysis** to extract best bets by category
-- **Filter by league name** using a configurable allow-list (example: Premier League, UCL).
-- Expose results via REST endpoints.
+- **Ingest competitions and matches** from Football-Data.org → stores in MongoDB
+- **Generate predictions** using historical head-to-head data combined with recent team form:
+  - **Match outcome probabilities** (Home/Draw/Away) with confidence levels
+  - **Over/Under 2.5 goals** recommendations
+  - **BTTS (Both Teams To Score)** predictions
+  - **H2H-enhanced accuracy** using past meeting statistics
+- **Smart caching** - prevents duplicate API calls with 24-hour TTL
+- **Daily automation** - scheduled ingestion and prediction pipeline
+- **RESTful API** - expose predictions via FastAPI endpoints
 
-### Prediction Metrics Explained
+### Key Features
 
-- **Match outcome probabilities (Home/Draw/Away)**: Likelihood of each result.
-  - These three probabilities are normalized to sum to $1.0$ (100%).
-  - Home advantage is still baked into the model.
-- **Goals Prediction**: Automatically recommends either "Over 2.5" or "Under 2.5" goals based on:
-  - Both teams' attacking strength (goals_for)
-  - Both teams' defensive weakness (goals_against)
-  - Expected total goals in the match
-- **BTTS (Both Teams To Score)**: Probability that BOTH teams score at least 1 goal each
-  - High probability = Expect both teams to find the net
-  - Based on the weakest link principle (minimum scoring potential of both teams)
+🎯 **H2H-Enhanced Predictions**
+- Uses historical head-to-head data when available
+- Analyzes past meetings: win ratios, goal averages, draw frequency
+- Blends H2H history (70%) with recent form (30%)
+- Falls back to team statistics when H2H unavailable
+
+📊 **Prediction Metrics**
+- **Match Outcome**: Home win, Draw, Away win probabilities (sum to 100%)
+- **Goals**: Over/Under 2.5 with confidence levels
+- **BTTS**: Both teams to score probability
 - **Confidence Levels**:
-  - For **Home Win** / **Away Win**:
-    - HIGH: ≥ 60%
-    - MEDIUM: 45–59%
-    - LOW: < 45%
-  - For **Draw**:
-    - HIGH: ≥ 40%
-    - MEDIUM: 30–39%
-    - LOW: < 30%
-  - For **Goals (Over/Under)** and **BTTS**, the previous HIGH/MEDIUM/LOW thresholds still apply.
+  - HIGH: ≥ 75% (goals/BTTS) or ≥ 60% (outcomes)
+  - MEDIUM: ≥ 60% (goals/BTTS) or ≥ 45% (outcomes)  
+  - LOW: Below medium threshold
 
-It ingests fixtures from the **API-Football** API into **MongoDB**, then generates **rule-based predictions** for today’s matches and serves them via a **FastAPI** API.
+⚡ **Smart Caching**
+- Competitions cached 24 hours
+- Matches cached 24 hours per competition
+- H2H data cached 24 hours per match
+- Prevents API rate limit exhaustion (10 req/min on free tier)
 
-> This repo currently focuses on “good enough” automation (scheduled ingestion + predictions API). There’s no GUI—configuration lives in `app/config/settings.py` and/or `.env`.
+> **Migration Note**: This service has been migrated from API-Football to Football-Data.org v4 for enhanced prediction capabilities. See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete migration documentation.
 
-## Project layout
+## Project Structure
 
-- `app/main.py` — FastAPI entrypoint
-- `app/jobs/daily_run.py` — daily ingestion job (fixtures for today)
-- `app/services/ingestion.py` — fixture ingestion logic
-- `app/services/prediction.py` — prediction pipeline (reads fixtures → writes predictions)
-- `app/services/ranking.py` — ranks predictions
-- `app/models/rule_based.py` — rule-based probability functions
-- `app/data_sources/api_football.py` — API-Football client
-- `app/db/mongo.py` — MongoDB connection helper
-- `app/config/settings.py` — configuration
+```
+app/
+├── main.py                         # FastAPI application
+├── jobs/
+│   └── daily_run.py               # Daily ingestion pipeline
+├── services/
+│   ├── ingestion.py               # Data ingestion with caching
+│   ├── prediction_v2.py           # H2H-enhanced predictions
+│   ├── team_stats_v2.py           # Team statistics computation
+│   └── ranking.py                 # Prediction ranking logic
+├── models/
+│   └── rule_based.py              # Prediction algorithms
+├── data_sources/
+│   └── football_data_api.py       # Football-Data.org API client
+├── db/
+│   ├── mongo.py                   # MongoDB connection
+│   └── schemas.py                 # Database indexes
+└── config/
+    └── settings.py                # Configuration
+
+scripts/
+├── init_db.py                     # Database initialization
+├── test_integration.py            # Integration tests
+└── setup_migration.py             # Migration setup wizard
+
+logs/                              # Application logs
+```
 
 ## Prerequisites
 
-- Python 3.11+
-- MongoDB (local or remote)
-- API-Football API key
+- **Python 3.11+**
+- **MongoDB** (local or remote)
+- **Football-Data.org API key** (free tier: 10 req/min)
 
-## Setup
+Get your API key: https://www.football-data.org/client/register
 
-### Quick Setup (Recommended)
+## Quick Setup
 
-Use the automated setup script:
-
-```bash
-# Run the setup script
-./setup.sh
-```
-
-This will:
-- Check Python installation
-- Create virtual environment
-- Install all dependencies
-- Create logs directory
-- Check for .env file
-
-### Manual Setup
-
-1) Create & activate a virtualenv
+### 1. Install Dependencies
 
 ```bash
+# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate
-```
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-2) Install dependencies
-
-```bash
+# Install requirements
 pip install -r requirements.txt
 ```
 
-3) Create a `.env` file at the repo root
+### 2. Configure Environment
+
+Create a `.env` file:
 
 ```bash
-touch .env
-```
+# Football-Data.org API v4 (Required)
+FOOTBALL_DATA_API_KEY=your_api_key_here
+FOOTBALL_DATA_BASE_URL=http://api.football-data.org/v4
 
-Add:
-
-```env
-# Required
-API_FOOTBALL_KEY=your_key_here
-
-# Admin API Key (REQUIRED for database cleanup/stats endpoints)
-# Generate a secure key: openssl rand -hex 32
-ADMIN_API_KEY=your_secure_admin_key_here
-
-# Optional (defaults shown)
+# MongoDB (Required)
 MONGO_URI=mongodb://localhost:27017
 DB_NAME=foo_ball_service
 
-# Present but not fully wired through yet
-ODDS_API_KEY=
+# Admin API Key (Required for database management)
+# Generate: openssl rand -hex 32
+ADMIN_API_KEY=your_secure_admin_key_here
 ```
 
-## Starting the Server
-
-### Quick Start (Recommended)
-
-Use the start script:
+### 3. Initialize Database
 
 ```bash
-# Start the server (automatically handles port conflicts)
-./start_server.sh
+# Create indexes
+python scripts/init_db.py
+
+# Or run the setup wizard (recommended for first-time)
+python scripts/setup_migration.py
 ```
 
-This will:
-- Check if virtual environment exists (creates if needed)
-- Check for any process listening on the configured port (from `$PORT`, default `8000`) and prompt to terminate it before starting
-- Activate virtual environment
-- Start the server with auto-reload on the configured port
-
-### Manual Start
+### 4. Run Initial Ingestion
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# Ingest data and generate predictions
+python app/jobs/daily_run.py
+```
 
-# Start the server
+### 5. Start the API Server
+
+```bash
+# Start server
 uvicorn app.main:app --reload
-```
 
-**Common Issues:**
-- `[Errno 48] Address already in use`: Port 8000 is occupied. Use `./start_server.sh` which handles this automatically, or manually kill the process:
-  ```bash
-  kill -9 $(lsof -ti:8000)
-  ```
-
-## Configuration
-
-### League filtering (no GUI)
-
-Today’s predictions are filtered by league name using this MongoDB clause:
-
-```js
-{ "league.name": { $in: ["UEFA Champions League", "Premier League"] } }
-```
-
-Update the allow-list in `app/config/settings.py`:
-
-- `settings.TRACKED_LEAGUES`: list of league names to include
-- `settings.PREDICTION_LIMIT`: how many ranked predictions to return
-
-## Running the ingestion job
-
-This job ingests **today’s** fixtures into MongoDB:
-
-```bash
-python -m app.jobs.daily_run
-```
-
-Notes:
-
-- Run from the repo root.
-- Using `-m` ensures imports work correctly (package execution).
-
-## Running the API
-
-The API server provides access to all predictions and data management features.
-
-### Start the Server
-
-```bash
+# Or use the start script
 ./start_server.sh
-```
-
-Or manually:
-
-```bash
-source venv/bin/activate
-uvicorn app.main:app --reload
 ```
 
 Open the interactive docs:
-
 - Swagger UI: http://127.0.0.1:8000/docs
 - ReDoc: http://127.0.0.1:8000/redoc
 
-### Endpoints
+## API Endpoints
 
-All endpoints now return standardized responses with HTTP status codes:
-- **200 OK** - Successful request (with or without data)
-  - `statusCode: 200` - Data available
-  - `statusCode: 204` - No data available (e.g., no fixtures for today)
-- **500 INTERNAL SERVER ERROR** - Server error during processing
+### Public Endpoints
 
-#### Available Endpoints
+#### Health Check
+```bash
+GET /health
+```
 
-**Predictions & Data:**
-- `GET /health` — basic health check
-- `GET /fixtures/ingest` — triggers ingestion for today's fixtures (same as the daily job)
-- `GET /predictions/today` — generates + returns ranked predictions for today
-  - Query param: `force_refresh=true` to regenerate predictions
-- `GET /predictions/analysis` — pandas-powered analysis with best bets by category
-- `GET /predictions/top-picks?limit=10` — top picks using composite scoring
+#### Trigger Data Ingestion
+```bash
+GET /fixtures/ingest
+```
+Runs the complete daily pipeline:
+1. Ingest competitions
+2. Ingest scheduled matches
+3. Fetch H2H data for upcoming matches
+4. Update team statistics
+5. Generate predictions
 
-**Database Management:**
-- `POST /database/cleanup` — delete records older than specified days
-  - **Authentication Required**: Include `X-API-Key` header with admin API key
-  - Body: `{"days": 7}` (default: 7)
-  - See [CLEANUP_API.md](CLEANUP_API.md) for details
-- `GET /database/stats` — get database statistics (record counts, date ranges)
-  - **Authentication Required**: Include `X-API-Key` header with admin API key
+#### Get Today's Predictions
+```bash
+GET /predictions/today?force_refresh=false
+```
+Returns ranked predictions for today's matches.
 
-⚠️ **Security Notice**: The database cleanup and stats endpoints require admin authentication. Never expose these endpoints publicly. See [CLEANUP_API.md](CLEANUP_API.md) for security best practices.
+**Query Parameters:**
+- `force_refresh` (optional): Set to `true` to regenerate predictions
 
-For complete database cleanup documentation, see **[CLEANUP_API.md](CLEANUP_API.md)**
-
-### Response Format
-
-All successful responses with data (200) include:
+**Response:**
 ```json
 {
   "statusCode": 200,
   "status": "success",
   "message": "Retrieved successfully",
-  ...data fields...
+  "count": 15,
+  "predictions": [
+    {
+      "match_id": 538036,
+      "match": "Aston Villa FC vs Brighton & Hove Albion FC",
+      "competition": "Premier League",
+      "competition_code": "PL",
+      "utc_date": "2026-02-11T19:30:00Z",
+      "home_win_probability": 0.523,
+      "home_win_confidence": "MEDIUM",
+      "draw_probability": 0.267,
+      "draw_confidence": "LOW",
+      "away_win_probability": 0.210,
+      "away_win_confidence": "LOW",
+      "predicted_outcome": "Home Win",
+      "goals_prediction": {
+        "bet": "Over 2.5",
+        "probability": 0.678,
+        "confidence": "MEDIUM"
+      },
+      "btts_probability": 0.687,
+      "btts_confidence": "MEDIUM",
+      "prediction_method": "H2H + Team Stats",
+      "h2h_available": true,
+      "created_at": "2026-02-11"
+    }
+  ]
 }
 ```
 
-Empty/no data responses (200 with statusCode 204):
-```json
-{
-  "statusCode": 204,
-  "status": "no_data",
-  "message": "No predictions available for today. No fixtures found for tracked leagues.",
-  "count": 0,
-  "predictions": []
-}
+#### Get Top Picks
+```bash
+GET /predictions/top-picks?limit=10
+```
+Returns top-ranked predictions using composite scoring.
+
+**Query Parameters:**
+- `limit` (optional, default: 35): Number of top picks to return
+
+### Admin Endpoints
+
+Requires `X-API-Key` header with admin API key.
+
+#### Database Statistics
+```bash
+curl http://localhost:8000/database/stats \
+  -H "X-API-Key: your_admin_key"
 ```
 
-Error responses (500):
-```json
-{
-  "statusCode": 500,
-  "status": "error",
-  "message": "Failed to generate predictions: <error details>"
-}
+#### Cleanup Old Records
+```bash
+curl -X POST http://localhost:8000/database/cleanup \
+  -H "X-API-Key: your_admin_key" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 7}'
 ```
 
-Example response shape for `/predictions/today` (200 OK):
+See [CLEANUP_API.md](CLEANUP_API.md) for security best practices.
 
-```json
-{
-  "statusCode": 200,
-  "status": "success",
-  "message": "Retrieved successfully",
-  "count": 30,
-  "predictions": [{
-    "fixture_id": 1482325,
-    "match": "Welwalo Adigrat Uni vs Sheger Ketema",
-    "league": "Premier League",
-    "league_logo": "https://media.api-sports.io/football/leagues/39.png",
-    "league_flag": "https://media.api-sports.io/flags/gb.svg",
-    "home_team": "Welwalo Adigrat Uni",
-    "home_team_logo": "https://media.api-sports.io/football/teams/123.png",
-    "away_team": "Sheger Ketema",
-    "away_team_logo": "https://media.api-sports.io/football/teams/456.png",
-    "home_win_probability": 0.741,
-    "home_win_confidence": "HIGH",
-    "draw_probability": 0.144,
-    "draw_confidence": "LOW",
-    "away_win_probability": 0.115,
-    "away_win_confidence": "LOW",
-    "predicted_outcome": "Home Win",
-    "predicted_outcome_probability": 0.741,
-    "goals_prediction": {
-      "bet": "Under 2.5",
-      "probability": 0.682,
-      "confidence": "MEDIUM"
-    },
-    "btts_probability": 0.592,
-    "btts_confidence": "MEDIUM",
-    "value_score": 0.488,
-    "created_at": "2026-01-21"
-  }]
-}
+## Configuration
+
+Edit `app/config/settings.py`:
+
+### Tracked Competitions
+
+```python
+TRACKED_COMPETITIONS = ["PL", "PD", "BL1", "CL", "SA", "ELC"]
 ```
 
-The `/predictions/analysis` endpoint provides:
-- `best_home_wins` — top 5 high-confidence home win predictions (includes team/league logos)
-- `best_goals_bets` — top 5 over/under 2.5 predictions with clear recommendations (includes team/league logos)
-- `best_btts` — top 5 both teams to score predictions (includes team/league logos)
-- `best_value_bets` — top 5 predictions with positive value scores (includes team/league logos)
-- `summary` — statistics including league distribution, confidence levels, etc.
+**Competition Codes:**
+- `PL` - Premier League (England)
+- `ELC` - Championship (England)
+- `PD` - La Liga (Spain)
+- `BL1` - Bundesliga (Germany)
+- `SA` - Serie A (Italy)
+- `CL` - Champions League (Europe)
+- `BSA` - Série A (Brazil)
 
-All prediction endpoints include visual assets for beautiful frontend displays (available when predictions are generated or refreshed):
-- `league_logo` — League logo URL (e.g., Premier League crest)
-- `league_flag` — Country flag URL for the league
-- `home_team_logo` — Home team logo/crest URL
-- `away_team_logo` — Away team logo/crest URL
+### Other Settings
 
-Note: Cached predictions created before this feature may return `null` for these fields. Regenerate predictions to populate visual assets.
+```python
+PREDICTION_LIMIT = 30           # Max predictions to return
+MAX_FIXTURES = 15               # Max matches for team stats
+MAX_DAYS_BACK = 90              # Days to look back for stats
+DEFAULT_LIMIT = 35              # Default limit for top picks
+```
 
-## Data & collections
+## Daily Automation
 
-MongoDB database: `settings.DB_NAME`
+The daily job runs a 5-step pipeline:
 
-Collections currently used:
+1. **Ingest competitions** - Fetch available leagues (once per day)
+2. **Ingest matches** - Fetch scheduled matches for tracked competitions
+3. **Fetch H2H data** - Get head-to-head for matches in next 7 days
+4. **Update team stats** - Compute form, goals for/against
+5. **Generate predictions** - Create H2H-enhanced predictions
 
-- `fixtures` — raw fixture docs from API-Football (stored with upsert on `fixture_id`)
-- `predictions` — stored predictions (upsert on `fixture_id`)
-- `team_stats` — **optional**; if present, used for predictions; otherwise, seeded random stats are generated per team
-
-### About team stats fallback
-
-When `team_stats` collection is empty (no historical data), the prediction service generates **seeded random stats** for each team based on their `team_id`. This ensures:
-
-- Predictions are **diverse** (not identical)
-- Predictions are **consistent** (same team always gets the same stats until you populate real data)
-
-To populate real stats, you can:
-1. Build a backfill job that calls `compute_team_stats_from_fixtures()` (see `app/services/team_stats.py`)
-2. Manually insert team performance data into the `team_stats` collection
-3. Integrate live team statistics from API-Football
-
-## Troubleshooting
-
-### `ModuleNotFoundError: No module named 'app'`
-
-Run scripts as modules from the repo root:
+### Manual Execution
 
 ```bash
-python -m app.jobs.daily_run
+python app/jobs/daily_run.py
 ```
 
-### Empty predictions
+### Cron Setup
 
-Common causes:
+```bash
+# Run daily at 6:00 AM
+crontab -e
 
-- You haven’t ingested fixtures for today yet.
-- Your `TRACKED_LEAGUES` list doesn’t match the exact league names in fixture docs.
-- Fixtures are stored under a different date/time format than expected.
+# Add:
+0 6 * * * cd /path/to/foo-ball-service && /usr/bin/python3 app/jobs/daily_run.py >> logs/daily_run.log 2>&1
+```
 
-### API-Football errors (401/403)
+## Database Collections
 
-- Confirm `API_FOOTBALL_KEY` is set in `.env`.
-- Restart the process after updating `.env`.
+### `competitions`
+Stores available competitions/leagues
+- Index: `code` (unique), `id`
+- TTL: 24 hours
 
-### Mongo connection errors
+### `matches`
+Stores match fixtures with embedded H2H data
+- Indexes: `id` (unique), `competition.code`, `utcDate`, `status`
+- Embedded `h2h` object with 24-hour TTL
 
-- Confirm MongoDB is running and `MONGO_URI` is correct.
-- If using Mongo Atlas, ensure your IP allow-list and credentials are set.
+### `team_stats`
+Team performance metrics
+- Index: `team_id` (unique)
+- Computed from last 15 matches (90 days)
 
-## Logging and Monitoring
+### `predictions`
+Daily match predictions
+- Indexes: `match_id`, `created_at`
+- Includes H2H availability flag
 
-The application includes comprehensive logging for monitoring, debugging, and security auditing.
+## Testing
 
-### Log Files
+### Integration Tests
 
-All logs are stored in the `logs/` directory:
-- `logs/app.log` - General application logs (startup, operations, errors)
-- `logs/api_requests.log` - All API requests with IP, status, response time
-- `logs/security.log` - Security events (unauthorized access, errors)
+```bash
+# Run comprehensive tests
+python scripts/test_integration.py
+```
 
-### Quick Log Commands
+Tests:
+1. ✅ API Connection
+2. ✅ Data Ingestion
+3. ✅ Head-to-Head Fetching
+4. ✅ Team Statistics
+5. ✅ Prediction Generation
+
+### Manual Testing
+
+```bash
+# Check database state
+python scripts/init_db.py --list
+
+# Verify predictions
+python -c "
+from app.services.prediction_v2 import get_predictions_today
+preds = get_predictions_today()
+print(f'{len(preds)} predictions generated')
+"
+```
+
+## Logging
+
+Logs are stored in the `logs/` directory:
+- `logs/app.log` - Application logs
+- `logs/api_requests.log` - API request tracking
+- `logs/security.log` - Security events
 
 ```bash
 # View logs in real-time
-tail -f logs/app.log              # Application logs
-tail -f logs/api_requests.log     # API requests
-tail -f logs/security.log         # Security events
+tail -f logs/app.log
 
 # Search for errors
 grep "ERROR" logs/app.log
 
-# Count today's requests
-grep "$(date +%Y-%m-%d)" logs/api_requests.log | wc -l
-
-# Monitor cleanup operations
-grep -i "cleanup" logs/app.log
+# Monitor API requests
+tail -f logs/api_requests.log
 ```
 
-For complete logging documentation, see **[LOGGING.md](LOGGING.md)**
+See [LOGGING.md](LOGGING.md) for complete documentation.
 
-### Log Rotation
+## Troubleshooting
 
-Logs automatically rotate at 10MB with 5 backups per file (~60MB total per log type).
+### No competitions fetched
+- Verify API key: `echo $FOOTBALL_DATA_API_KEY`
+- Test API: `curl -H "X-Auth-Token: YOUR_KEY" http://api.football-data.org/v4/competitions`
+- Check logs: `tail -f logs/app.log`
 
-## Database Management
+### Rate limit exceeded
+- Review ingestion frequency
+- Verify deduplication is working (check `ingested_at` fields)
+- Consider upgrading API plan
 
-### Cleanup Old Records
+### No H2H data
+- Run: `python -c "from app.services.ingestion import fetch_h2h_for_upcoming_matches; fetch_h2h_for_upcoming_matches()"`
+- Verify matches exist in database
+- Check logs for API errors
 
-⚠️ **Authentication Required**: Database management endpoints require admin authentication.
+### Predictions use "Team Stats Only"
+- H2H data missing for those matches
+- Run daily job to fetch H2H: `python app/jobs/daily_run.py`
+- Verify `h2h.last_updated` field in match documents
 
-To manage database storage, use the cleanup API:
+### Database connection errors
+- Confirm MongoDB is running
+- Verify `MONGO_URI` in `.env`
+- Check IP allowlist (if using MongoDB Atlas)
 
-```bash
-# Set your admin API key
-export ADMIN_API_KEY="your_secure_admin_key_here"
+## Migration from API-Football
 
-# Clean records older than 7 days (default)
-curl -X POST http://localhost:8000/database/cleanup \
-  -H "X-API-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"days": 7}'
+This service has been migrated from API-Football to Football-Data.org v4 API. The migration adds:
 
-# Check database stats first
-curl http://localhost:8000/database/stats \
-  -H "X-API-Key: $ADMIN_API_KEY"
+- Head-to-head predictions (70% H2H + 30% recent form)
+- Smart caching to prevent API exhaustion
+- Better data structure with embedded H2H
+- Improved prediction accuracy
+
+**Backwards Compatibility:**
+- Legacy services remain functional
+- Old `fixtures` collection still supported
+- Can run both systems in parallel
+
+For complete migration guide, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
+
+## Development Notes
+
+- Predictions use **rule-based algorithms** with H2H enhancement
+- ML dependencies exist but not yet integrated with H2H
+- Future: ML model training on H2H features
+- Architecture: Clean separation of concerns (data sources, services, models)
+
+## Response Format
+
+All endpoints return standardized responses:
+
+**Success with data:**
+```json
+{
+  "statusCode": 200,
+  "status": "success",
+  "message": "Retrieved successfully",
+  ...
+}
 ```
 
-See [CLEANUP_API.md](CLEANUP_API.md) for complete documentation including:
-- Security best practices
-- Network restrictions
-- API key management
-- Automation examples
+**Success without data:**
+```json
+{
+  "statusCode": 204,
+  "status": "no_data",
+  "message": "No predictions available for today",
+  ...
+}
+```
 
-## Development notes
-
-- Predictions are currently **rule-based** (`app/models/rule_based.py`).
-- ML dependencies exist in `requirements.txt` (e.g., scikit-learn, xgboost), but the default `/predictions/today` endpoint uses the rule-based approach.
-
-## Roadmap ideas
-
-- Load `TRACKED_LEAGUES` from `.env` (comma-separated) instead of editing code
-- Add a CLI command for ingestion and backfills (date ranges)
-- Enrich `team_stats` ingestion and remove fallback defaults
-- Add tests (ranking, prediction edge cases)
+**Error:**
+```json
+{
+  "statusCode": 500,
+  "status": "error",
+  "message": "Error details"
+}
+```
 
 ## Glossary
 
 | Term | Meaning |
 |------|---------|
+| **H2H** | Head-to-Head (historical meetings between two teams) |
 | **BTTS** | Both Teams To Score (at least 1 goal each) |
-| **Over 2.5** | Match will have 3 or more total goals |
+| **Over 2.5** | Match will have 3+ total goals |
 | **Under 2.5** | Match will have 2 or fewer total goals |
-| **HIGH** | High confidence (see thresholds above; differs by metric) |
-| **MEDIUM** | Medium confidence (see thresholds above; differs by metric) |
-| **LOW** | Low confidence (see thresholds above; differs by metric) |
-| **Value Score** | Difference between model probability and market odds |
-| **Form** | Team's recent performance (points per game average) |
+| **Form** | Points per game average (0-3 scale) |
+| **TTL** | Time To Live (cache expiration time) |
+
+## Documentation
+
+- **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Complete migration documentation
+- **[CLEANUP_API.md](CLEANUP_API.md)** - Database management guide
+- **[LOGGING.md](LOGGING.md)** - Logging and monitoring guide
+
+## License
+
+[Add your license here]
+
+## Support
+
+For issues or questions:
+- Check logs in `logs/` directory
+- Review Football-Data.org API docs: https://www.football-data.org/documentation/api
+- Run diagnostics: `python scripts/test_integration.py`

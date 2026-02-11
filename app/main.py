@@ -4,9 +4,8 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from datetime import date
 from typing import Annotated
 from app.config.settings import Settings
-from app.services.prediction import predict_today, get_persisted_predictions_today
+from app.services.prediction_v2 import get_predictions_today as predict_today_v2, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
-from app.services.analysis import analyze_predictions, get_top_picks
 from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
@@ -91,25 +90,52 @@ def health():
 @app.get("/fixtures/ingest")
 def ingest_todays_fixtures():
     """
-    Trigger the daily ingestion job to fetch today's fixtures from the API.
-    This is equivalent to running: python3 -m app.jobs.daily_run
+    Trigger the daily data ingestion pipeline (competitions + matches only).
     
-    Returns the number of fixtures ingested for today.
+    This endpoint runs:
+    1. Ingest competitions from Football-Data.org (smart caching - only if DB empty)
+    2. Ingest scheduled matches for tracked competitions (smart caching - only if needed)
+    3. Update team statistics from recent matches
+    
+    NOTE: H2H data is fetched on-demand when /predictions/today is called (lazy loading).
+          This keeps ingestion fast and only fetches H2H when predictions are actually needed.
+    
+    Returns:
+        Summary of ingestion results including:
+        - competitions_ingested: Number of competitions updated
+        - matches_ingested: Dict of matches per competition
+        - teams_updated: Number of team stats updated
+        - note: Reminder that H2H is lazy-loaded
+        - errors: List of any errors encountered
     """
     try:
         today = date.today().isoformat()
-        fixtures_count = daily_run()
+        logger.info(f"Starting manual ingestion run for {today}")
+        
+        results = daily_run()
+        
+        total_matches = sum(results.get('matches_ingested', {}).values())
+        
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "statusCode": 200,
                 "status": "success",
-                "message": f"Daily ingestion complete. Fixtures for {today} have been ingested.",
-                "results": fixtures_count,
-                "date": today
+                "message": f"Daily ingestion complete for {today}",
+                "date": today,
+                "summary": {
+                    "competitions": results.get('competitions_ingested', 0),
+                    "matches": total_matches,
+                    "h2h_datasets": results.get('h2h_fetched', 0),
+                    "teams_updated": results.get('teams_updated', 0),
+                    "predictions": results.get('predictions_generated', 0)
+                },
+                "details": results,
+                "errors": results.get('errors', [])
             }
         )
     except Exception as e:
+        logger.error(f"Daily run failed: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -120,26 +146,44 @@ def ingest_todays_fixtures():
         )
 
 @app.get("/predictions/today")
-def get_predictions_today(force_refresh: bool = False):
+def get_predictions_today_endpoint(force_refresh: bool = False):
     """
-    Get all predictions for today with ranking.
+    Get predictions for today's matches with H2H enhancement (lazy-loaded).
+    
+    **LAZY LOADING:** This endpoint automatically fetches H2H data for today's matches
+    if not already cached. This ensures predictions always have the latest H2H data
+    while keeping the /fixtures/ingest endpoint fast.
+    
+    Predictions combine:
+    - Historical head-to-head data (70% weight) - fetched on-demand if missing
+    - Recent team form and statistics (30% weight)
+    
+    Predictions include:
+    - Match outcome probabilities (Home/Draw/Away)
+    - Over/Under 2.5 goals recommendations
+    - Both Teams To Score (BTTS) predictions
+    - Confidence levels (HIGH/MEDIUM/LOW)
+    - Prediction method indicator (H2H + Team Stats or Team Stats Only)
     
     Args:
-        force_refresh: If True, recalculates predictions from fixtures. 
+        force_refresh: If True, regenerates predictions from latest data. 
                       If False (default), returns cached predictions if available.
+    
+    Returns:
+        JSON response with ranked predictions for today's matches
     """
     try:
         if force_refresh:
-            # Force fresh calculation
-            top_predictions = predict_today()
+            # Force fresh calculation (includes lazy H2H fetch)
+            top_predictions = predict_today_v2(use_h2h=True, fetch_h2h_on_demand=True)
         else:
             # Try to get cached predictions first
             cached_predictions = get_persisted_predictions_today()
             if cached_predictions:
                 top_predictions = cached_predictions
             else:
-                # No cached predictions, calculate fresh
-                top_predictions = predict_today()
+                # No cached predictions, calculate fresh (includes lazy H2H fetch)
+                top_predictions = predict_today_v2(use_h2h=True, fetch_h2h_on_demand=True)
         
         if not top_predictions:
             return JSONResponse(
@@ -147,7 +191,7 @@ def get_predictions_today(force_refresh: bool = False):
                 content={
                     "statusCode": 204,
                     "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues.",
+                    "message": "No predictions available for today. No fixtures found for tracked competitions.",
                     "count": 0,
                     "predictions": []
                 }
@@ -164,6 +208,7 @@ def get_predictions_today(force_refresh: bool = False):
             }
         )
     except Exception as e:
+        logger.error(f"Failed to generate predictions: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -175,61 +220,27 @@ def get_predictions_today(force_refresh: bool = False):
             }
         )
 
-@app.get("/predictions/analysis")
-def get_predictions_analysis():
-    """
-    Get enhanced analysis of today's predictions with pandas insights.
-    Always uses the latest predictions from the database.
-    """
-    try:
-        # Ensure predictions are up-to-date
-        predict_today()  # This updates the database with latest predictions
-        
-        # Now fetch and analyze
-        all_predictions = get_persisted_predictions_today()
-        
-        if not all_predictions:
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={
-                    "statusCode": 204,
-                    "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues."
-                }
-            )
-        
-        analysis = analyze_predictions(all_predictions)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "statusCode": 200,
-                "status": "success",
-                "message": "Retrieved successfully",
-                **analysis
-            }
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "statusCode": 500,
-                "status": "error",
-                "message": f"Failed to analyze predictions: {str(e)}"
-            }
-        )
-
 @app.get("/predictions/top-picks")
-def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
+def get_predictions_top_picks_endpoint(limit: int = Settings.DEFAULT_LIMIT):
     """
-    Get top picks based on composite scoring.
-    Always uses the latest predictions from the database.
+    Get top-ranked predictions using composite scoring.
+    
+    Top picks are selected based on:
+    - Prediction confidence
+    - Outcome probability
+    - Historical H2H data quality
+    
+    This endpoint always uses the latest predictions with H2H enhancement.
+    
+    Args:
+        limit: Maximum number of top picks to return (default: 35)
+    
+    Returns:
+        JSON response with top-ranked predictions
     """
     try:
-        # Ensure predictions are up-to-date
-        predict_today()  # This updates the database with latest predictions
-        
-        # Now fetch and rank
-        all_predictions = get_persisted_predictions_today()
+        # Generate fresh predictions with H2H
+        all_predictions = predict_today_v2(use_h2h=True)
         
         if not all_predictions:
             return JSONResponse(
@@ -237,13 +248,15 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
                 content={
                     "statusCode": 204,
                     "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues.",
+                    "message": "No predictions available for today. No fixtures found for tracked competitions.",
                     "count": 0,
                     "top_picks": []
                 }
             )
         
-        top_picks = get_top_picks(all_predictions, limit=limit)
+        # Rank and limit
+        top_picks = all_predictions[:limit] if len(all_predictions) > limit else all_predictions
+        
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -255,6 +268,7 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
             }
         )
     except Exception as e:
+        logger.error(f"Failed to get top picks: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
