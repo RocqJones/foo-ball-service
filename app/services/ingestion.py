@@ -429,38 +429,3 @@ def fetch_h2h_for_todays_matches(max_per_day: int = 10) -> int:
     total_today = h2h_today_count + fetched_count
     logger.info(f"Fetched H2H for {fetched_count} of today's matches (Total H2H today: {total_today}/{max_per_day})")
     return fetched_count
-
-
-# Legacy function for backwards compatibility
-def ingest_fixtures(date: str) -> int:
-    """
-    Legacy function for API-Football fixtures ingestion.
-    Kept for backwards compatibility.
-    
-    Args:
-        date: Date string in ISO format (YYYY-MM-DD)
-    
-    Returns:
-        Number of fixtures ingested
-    """
-    from app.data_sources.api_football import get_fixtures
-    
-    fixtures_col = get_collection("fixtures")
-    fixtures = get_fixtures(date)
-
-    # Remove all existing fixtures for this date to prevent duplicates
-    delete_result = fixtures_col.delete_many({"fixture.date": {"$regex": f"^{date}"}})
-    logger.info(f"Deleted {delete_result.deleted_count} existing fixtures for {date}")
-    
-    # Insert all new fixtures
-    ingested_count = 0
-    for fixture in fixtures:
-        result = fixtures_col.update_one(
-            {"fixture_id": fixture["fixture"]["id"]},
-            {"$set": fixture},
-            upsert=True
-        )
-        if result.upserted_id or result.modified_count > 0:
-            ingested_count += 1
-    
-    return ingested_count
