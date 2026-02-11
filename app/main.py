@@ -1,12 +1,12 @@
 from fastapi import FastAPI, status, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
+from pydantic import BaseModel
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Optional
 from app.config.settings import Settings
-from app.services.prediction import predict_today, get_persisted_predictions_today
+from app.services.prediction_v2 import get_predictions_today as predict_today_v2, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
-from app.services.analysis import analyze_predictions, get_top_picks
 from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
@@ -91,25 +91,52 @@ def health():
 @app.get("/fixtures/ingest")
 def ingest_todays_fixtures():
     """
-    Trigger the daily ingestion job to fetch today's fixtures from the API.
-    This is equivalent to running: python3 -m app.jobs.daily_run
+    Trigger the daily data ingestion pipeline (competitions + matches only).
     
-    Returns the number of fixtures ingested for today.
+    This endpoint runs:
+    1. Ingest competitions from Football-Data.org (smart caching - only if DB empty)
+    2. Ingest scheduled matches for tracked competitions (smart caching - only if needed)
+    3. Update team statistics from recent matches
+    
+    NOTE: H2H data is fetched on-demand when /predictions/today is called (lazy loading).
+          This keeps ingestion fast and only fetches H2H when predictions are actually needed.
+    
+    Returns:
+        Summary of ingestion results including:
+        - competitions_ingested: Number of competitions updated
+        - matches_ingested: Dict of matches per competition
+        - teams_updated: Number of team stats updated
+        - note: Reminder that H2H is lazy-loaded
+        - errors: List of any errors encountered
     """
     try:
         today = date.today().isoformat()
-        fixtures_count = daily_run()
+        logger.info(f"Starting manual ingestion run for {today}")
+        
+        results = daily_run()
+        
+        total_matches = sum(results.get('matches_ingested', {}).values())
+        
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "statusCode": 200,
                 "status": "success",
-                "message": f"Daily ingestion complete. Fixtures for {today} have been ingested.",
-                "results": fixtures_count,
-                "date": today
+                "message": f"Daily ingestion complete for {today}",
+                "date": today,
+                "summary": {
+                    "competitions": results.get('competitions_ingested', 0),
+                    "matches": total_matches,
+                    "h2h_datasets": results.get('h2h_fetched', 0),
+                    "teams_updated": results.get('teams_updated', 0),
+                    "predictions": results.get('predictions_generated', 0)
+                },
+                "details": results,
+                "errors": results.get('errors', [])
             }
         )
     except Exception as e:
+        logger.error(f"Daily run failed: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -120,26 +147,44 @@ def ingest_todays_fixtures():
         )
 
 @app.get("/predictions/today")
-def get_predictions_today(force_refresh: bool = False):
+def get_predictions_today_endpoint(force_refresh: bool = False):
     """
-    Get all predictions for today with ranking.
+    Get predictions for today's matches with H2H enhancement (lazy-loaded).
+    
+    **LAZY LOADING:** This endpoint automatically fetches H2H data for today's matches
+    if not already cached. This ensures predictions always have the latest H2H data
+    while keeping the /fixtures/ingest endpoint fast.
+    
+    Predictions combine:
+    - Historical head-to-head data (70% weight) - fetched on-demand if missing
+    - Recent team form and statistics (30% weight)
+    
+    Predictions include:
+    - Match outcome probabilities (Home/Draw/Away)
+    - Over/Under 2.5 goals recommendations
+    - Both Teams To Score (BTTS) predictions
+    - Confidence levels (HIGH/MEDIUM/LOW)
+    - Prediction method indicator (H2H + Team Stats or Team Stats Only)
     
     Args:
-        force_refresh: If True, recalculates predictions from fixtures. 
+        force_refresh: If True, regenerates predictions from latest data. 
                       If False (default), returns cached predictions if available.
+    
+    Returns:
+        JSON response with ranked predictions for today's matches
     """
     try:
         if force_refresh:
-            # Force fresh calculation
-            top_predictions = predict_today()
+            # Force fresh calculation (includes lazy H2H fetch)
+            top_predictions = predict_today_v2(use_h2h=True, fetch_h2h_on_demand=True)
         else:
             # Try to get cached predictions first
             cached_predictions = get_persisted_predictions_today()
             if cached_predictions:
                 top_predictions = cached_predictions
             else:
-                # No cached predictions, calculate fresh
-                top_predictions = predict_today()
+                # No cached predictions, calculate fresh (includes lazy H2H fetch)
+                top_predictions = predict_today_v2(use_h2h=True, fetch_h2h_on_demand=True)
         
         if not top_predictions:
             return JSONResponse(
@@ -147,7 +192,7 @@ def get_predictions_today(force_refresh: bool = False):
                 content={
                     "statusCode": 204,
                     "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues.",
+                    "message": "No predictions available for today. No fixtures found for tracked competitions.",
                     "count": 0,
                     "predictions": []
                 }
@@ -164,6 +209,7 @@ def get_predictions_today(force_refresh: bool = False):
             }
         )
     except Exception as e:
+        logger.error(f"Failed to generate predictions: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -175,61 +221,27 @@ def get_predictions_today(force_refresh: bool = False):
             }
         )
 
-@app.get("/predictions/analysis")
-def get_predictions_analysis():
-    """
-    Get enhanced analysis of today's predictions with pandas insights.
-    Always uses the latest predictions from the database.
-    """
-    try:
-        # Ensure predictions are up-to-date
-        predict_today()  # This updates the database with latest predictions
-        
-        # Now fetch and analyze
-        all_predictions = get_persisted_predictions_today()
-        
-        if not all_predictions:
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={
-                    "statusCode": 204,
-                    "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues."
-                }
-            )
-        
-        analysis = analyze_predictions(all_predictions)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "statusCode": 200,
-                "status": "success",
-                "message": "Retrieved successfully",
-                **analysis
-            }
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "statusCode": 500,
-                "status": "error",
-                "message": f"Failed to analyze predictions: {str(e)}"
-            }
-        )
-
 @app.get("/predictions/top-picks")
-def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
+def get_predictions_top_picks_endpoint(limit: int = Settings.DEFAULT_LIMIT):
     """
-    Get top picks based on composite scoring.
-    Always uses the latest predictions from the database.
+    Get top-ranked predictions using composite scoring.
+    
+    Top picks are selected based on:
+    - Prediction confidence
+    - Outcome probability
+    - Historical H2H data quality
+    
+    This endpoint always uses the latest predictions with H2H enhancement.
+    
+    Args:
+        limit: Maximum number of top picks to return (default: 35)
+    
+    Returns:
+        JSON response with top-ranked predictions
     """
     try:
-        # Ensure predictions are up-to-date
-        predict_today()  # This updates the database with latest predictions
-        
-        # Now fetch and rank
-        all_predictions = get_persisted_predictions_today()
+        # Generate fresh predictions with H2H
+        all_predictions = predict_today_v2(use_h2h=True)
         
         if not all_predictions:
             return JSONResponse(
@@ -237,13 +249,15 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
                 content={
                     "statusCode": 204,
                     "status": "no_data",
-                    "message": "No predictions available for today. No fixtures found for tracked leagues.",
+                    "message": "No predictions available for today. No fixtures found for tracked competitions.",
                     "count": 0,
                     "top_picks": []
                 }
             )
         
-        top_picks = get_top_picks(all_predictions, limit=limit)
+        # Rank and limit
+        top_picks = all_predictions[:limit] if len(all_predictions) > limit else all_predictions
+        
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -255,6 +269,7 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
             }
         )
     except Exception as e:
+        logger.error(f"Failed to get top picks: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -266,11 +281,258 @@ def get_predictions_top_picks(limit: int = Settings.DEFAULT_LIMIT):
             }
         )
 
+# ============================================================================
+# PUBLIC ENDPOINTS - Smart Auto-Fetch from Source
+# ============================================================================
+
+@app.get("/competitions")
+async def get_competitions():
+    """
+    Get all available competitions.
+    
+    Smart auto-fetch logic:
+    - First checks if competitions exist in database
+    - If empty, automatically fetches from source (transparent to FE)
+    - Returns competitions with clean response (no source implementation details)
+    
+    Frontend Usage:
+    - Use this to get competition list for filters/dropdowns
+    - Extract 'code' field to use in POST /matches
+    
+    Returns:
+        {
+            "status": "success",
+            "count": 6,
+            "competitions": [
+                {
+                    "code": "PL",
+                    "name": "Premier League",
+                    "emblem": "https://...",
+                    "area": {"name": "England", "code": "ENG"},
+                    "currentSeason": {...}
+                }
+            ]
+        }
+    """
+    try:
+        from app.db.mongo import get_collection
+        from app.services.ingestion import ingest_competitions
+        
+        competitions_col = get_collection("competitions")
+        
+        # Check if we have competitions in DB
+        existing_count = competitions_col.count_documents({})
+        
+        # Auto-fetch if empty (transparent to FE)
+        if existing_count == 0:
+            logger.info("No competitions in DB, auto-fetching from source...")
+            ingest_result = ingest_competitions()
+            if not ingest_result.get("success"):
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "status": "error",
+                        "message": "Failed to fetch competitions from source",
+                        "details": ingest_result.get("error")
+                    }
+                )
+            logger.info(f"Auto-fetched {ingest_result.get('inserted', 0)} competitions")
+        
+        # Get competitions from DB (clean response, no source details)
+        competitions = list(competitions_col.find(
+            {},
+            {
+                "_id": 0,
+                "code": 1,
+                "name": 1,
+                "type": 1,
+                "emblem": 1,
+                "area": 1,
+                "currentSeason": 1,
+                "numberOfAvailableSeasons": 1
+            }
+        ).sort("name", 1))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "count": len(competitions),
+                "competitions": competitions
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get competitions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Failed to retrieve competitions"
+            }
+        )
+
+
+class MatchesRequest(BaseModel):
+    """Request model for POST /matches"""
+    competition_code: str
+    status_filter: Optional[str] = None  # SCHEDULED, TIMED, FINISHED, LIVE
+    date_from: Optional[str] = None  # YYYY-MM-DD
+    date_to: Optional[str] = None  # YYYY-MM-DD
+    limit: Optional[int] = 100
+
+
+@app.post("/matches")
+async def get_matches(request: MatchesRequest):
+    """
+    Get matches for a specific competition (smart auto-fetch).
+    
+    Smart auto-fetch logic:
+    - Checks if matches exist for the competition code
+    - If empty, automatically fetches from source using competition code
+    - Avoids duplicates and unnecessary source calls
+    - Returns clean response (no source implementation details)
+    
+    Request Body:
+        {
+            "competition_code": "PL",          // Required: from /competitions
+            "status_filter": "SCHEDULED",      // Optional: SCHEDULED, TIMED, FINISHED, LIVE
+            "date_from": "2026-02-11",         // Optional: YYYY-MM-DD
+            "date_to": "2026-02-15",           // Optional: YYYY-MM-DD
+            "limit": 100                       // Optional: default 100, max 500
+        }
+    
+    Response:
+        {
+            "status": "success",
+            "count": 38,
+            "matches": [
+                {
+                    "id": 538036,
+                    "utcDate": "2026-02-14T15:00:00Z",
+                    "status": "SCHEDULED",
+                    "homeTeam": {"name": "Arsenal FC"},
+                    "awayTeam": {"name": "Liverpool FC"},
+                    "competition": {"code": "PL", "name": "Premier League"}
+                }
+            ]
+        }
+    """
+    try:
+        from app.db.mongo import get_collection
+        from app.services.ingestion import ingest_matches_for_competition
+        
+        competition_code = request.competition_code.upper()
+        matches_col = get_collection("matches")
+        competitions_col = get_collection("competitions")
+        
+        # Validate competition exists
+        competition = competitions_col.find_one({"code": competition_code})
+        if not competition:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": "error",
+                    "message": f"Competition '{competition_code}' not found. Use GET /competitions to see available competitions."
+                }
+            )
+        
+        # Check if we have matches for this competition
+        existing_count = matches_col.count_documents({"competition.code": competition_code})
+        
+        # Auto-fetch if empty (transparent to FE)
+        if existing_count == 0:
+            logger.info(f"No matches for {competition_code} in DB, auto-fetching from source...")
+            ingest_result = ingest_matches_for_competition(competition_code)
+            if not ingest_result.get("success"):
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "status": "error",
+                        "message": f"Failed to fetch matches for {competition_code}",
+                        "details": ingest_result.get("error")
+                    }
+                )
+            logger.info(f"Auto-fetched {ingest_result.get('inserted', 0)} matches for {competition_code}")
+        
+        # Build query for filtering
+        query = {"competition.code": competition_code}
+        
+        if request.status_filter:
+            statuses = [s.strip().upper() for s in request.status_filter.split(",")]
+            query["status"] = {"$in": statuses}
+        
+        if request.date_from or request.date_to:
+            date_query = {}
+            if request.date_from:
+                date_query["$gte"] = f"{request.date_from}T00:00:00Z"
+            if request.date_to:
+                date_query["$lte"] = f"{request.date_to}T23:59:59Z"
+            query["utcDate"] = date_query
+        
+        # Limit validation
+        limit = min(request.limit or 100, 500)
+        
+        # Get matches from DB (clean response, no H2H data)
+        matches = list(matches_col.find(
+            query,
+            {
+                "_id": 0,
+                "id": 1,
+                "utcDate": 1,
+                "status": 1,
+                "matchday": 1,
+                "stage": 1,
+                "competition": 1,
+                "season": 1,
+                "homeTeam": 1,
+                "awayTeam": 1,
+                "score": 1
+                # h2h excluded - too large for list view
+            }
+        ).sort("utcDate", 1).limit(limit))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "count": len(matches),
+                "competition": {
+                    "code": competition_code,
+                    "name": competition.get("name")
+                },
+                "matches": matches
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get matches: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "Failed to retrieve matches"
+            }
+        )
+
+# ============================================================================
+# ADMIN ENDPOINTS (Authentication Required)
+# ============================================================================
+
 @app.post("/database/cleanup", dependencies=[Depends(verify_admin_key)])
 def cleanup_database(days: Annotated[int, Body(ge=1, embed=True)] = 7):
     """
     Delete all records older than the specified number of days.
     This helps manage database storage by removing old data.
+    
+    **PROTECTED COLLECTIONS (never cleaned):**
+    - competitions: Master data, cached permanently for performance
+    - matches: Scheduled matches, cached with smart ingestion logic
+    
+    **CLEANED COLLECTIONS:**
+    - fixtures: Legacy API-Football data (can be re-fetched)
+    - predictions: Daily predictions (can be regenerated)
+    - team_stats: Team statistics (can be recomputed)
     
     **Authentication Required**: This endpoint requires admin authentication.
     Include the admin API key in the X-API-Key header.
