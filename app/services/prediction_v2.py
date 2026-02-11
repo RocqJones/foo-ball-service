@@ -7,7 +7,7 @@ This service:
 - Falls back to team stats when H2H is unavailable
 - Maintains backwards compatibility with existing prediction format
 """
-from datetime import date, datetime, timezone, timedelta
+from datetime import date
 from typing import List, Dict, Any, Optional
 from app.db.mongo import get_collection
 from app.models.rule_based import (
