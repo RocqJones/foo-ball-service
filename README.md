@@ -1,4 +1,4 @@
-# Foo Ball Service
+# Foo Ball Service - prod
 
 A football match prediction service powered by **Football-Data.org v4 API** with head-to-head (H2H) enhanced predictions.
 
