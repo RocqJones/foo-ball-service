@@ -94,6 +94,11 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
         away_goals_m = full_time.get("away")
         if home_goals_m is None or away_goals_m is None:
             continue
+        try:
+            home_goals_m = int(float(home_goals_m))
+            away_goals_m = int(float(away_goals_m))
+        except (ValueError, TypeError):
+            continue
 
         m_home_id = m.get("homeTeam", {}).get("id")
         m_away_id = m.get("awayTeam", {}).get("id")
@@ -107,7 +112,7 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
             continue
 
         finished_matches += 1
-        total_goals += int(home_goals_m) + int(away_goals_m)
+        total_goals += home_goals_m + away_goals_m
 
         # Map the result to the current fixture perspective
         if m_home_id == home_team_id:
@@ -159,8 +164,11 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
             match_home_id = match.get("homeTeam", {}).get("id")
             match_away_id = match.get("awayTeam", {}).get("id")
             
-            home_goals = full_time.get("home", 0) or 0
-            away_goals = full_time.get("away", 0) or 0
+            try:
+                home_goals = int(float(full_time.get("home")))
+                away_goals = int(float(full_time.get("away")))
+            except (ValueError, TypeError):
+                continue
             
             # Accumulate goals from the perspective of the current match's teams
             if match_home_id == home_team_id:
