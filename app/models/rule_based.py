@@ -17,6 +17,12 @@ from typing import Dict, Any, Optional, Tuple
 DEFAULT_GOALS_FOR = 1.5
 DEFAULT_GOALS_AGAINST = 1.5
 
+# League average base rates (typical across major European leagues)
+# Home teams win ~45%, draws ~27%, away wins ~28%
+LEAGUE_AVG_HOME_WIN = 0.45
+LEAGUE_AVG_DRAW = 0.27
+LEAGUE_AVG_AWAY_WIN = 0.28
+
 
 def sigmoid(x: float) -> float:
     """Sigmoid activation function for probability conversion."""
@@ -207,12 +213,6 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
     Returns:
         Tuple of (home_win_prob, draw_prob, away_win_prob)
     """
-    # League average base rates (typical across major European leagues)
-    # Home teams win ~45%, draws ~27%, away wins ~28%
-    LEAGUE_AVG_HOME_WIN = 0.45
-    LEAGUE_AVG_DRAW = 0.27
-    LEAGUE_AVG_AWAY_WIN = 0.28
-    
     # H2H probabilities from historical data
     h2h_home_win = h2h_features["home_win_ratio"]
     h2h_draw = h2h_features["draw_ratio"]
