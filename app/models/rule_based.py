@@ -215,7 +215,7 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
     # With 5 matches: ~60% H2H, 40% league average
     # With 10+ matches: ~90% H2H, 10% league average
     h2h_count = h2h_features.get("h2h_matches_count", 0)
-    h2h_weight = min(0.9, 0.2 + (h2h_count * 0.1))  # Caps at 90% for 7+ matches
+    h2h_weight = min(0.9, 0.2 + (h2h_count * 0.1))  # Caps at 90% starting at 7 matches
     league_weight = 1.0 - h2h_weight
     
     # Blend H2H with league averages
