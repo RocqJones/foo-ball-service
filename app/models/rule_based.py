@@ -237,11 +237,11 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
         goal_diff = (home_stats.get("goals_for", DEFAULT_GOALS_FOR) - home_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) - \
                     (away_stats.get("goals_for", DEFAULT_GOALS_FOR) - away_stats.get("goals_against", DEFAULT_GOALS_AGAINST))
         
-        # Adjust based on current form (scale: 0.1 means form has 10% weight)
+        # Adjust based on current form (outputs range -0.5 to 0.5)
         form_adjustment = sigmoid(form_diff * 0.5) - 0.5  # -0.5 to 0.5
         goal_adjustment = sigmoid(goal_diff * 0.3) - 0.5  # -0.5 to 0.5
         
-        # Apply form adjustments (15% weight to recent form)
+        # Apply form adjustments (15% weight to recent form, 85% to base probabilities)
         combined_adjustment = form_adjustment + goal_adjustment
         home_win_base = home_win_base * 0.85 + combined_adjustment * 0.15
         away_win_base = away_win_base * 0.85 - combined_adjustment * 0.15
