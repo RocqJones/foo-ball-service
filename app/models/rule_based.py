@@ -234,8 +234,11 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
         goal_adjustment = sigmoid(goal_diff * 0.3) - 0.5  # -0.5 to 0.5
         
         # Apply form adjustments (15% weight to recent form)
-        home_win_base = home_win_base * 0.85 + (form_adjustment + goal_adjustment) * 0.15
-        away_win_base = away_win_base * 0.85 - (form_adjustment + goal_adjustment) * 0.15
+        combined_adjustment = form_adjustment + goal_adjustment
+        home_win_base = home_win_base * 0.85 + combined_adjustment * 0.15
+        away_win_base = away_win_base * 0.85 - combined_adjustment * 0.15
+        # Reduce draw probability proportionally to the magnitude of form difference
+        draw_base = draw_base * max(0.0, 1.0 - abs(combined_adjustment) * 0.15)
     
     # Ensure probabilities are positive and normalized
     home_win_base = max(0.05, home_win_base)
