@@ -17,6 +17,12 @@ from typing import Dict, Any, Optional, Tuple
 DEFAULT_GOALS_FOR = 1.5
 DEFAULT_GOALS_AGAINST = 1.5
 
+# League average base rates (typical across major European leagues)
+# Home teams win ~45%, draws ~27%, away wins ~28%
+LEAGUE_AVG_HOME_WIN = 0.45
+LEAGUE_AVG_DRAW = 0.27
+LEAGUE_AVG_AWAY_WIN = 0.28
+
 
 def sigmoid(x: float) -> float:
     """Sigmoid activation function for probability conversion."""
@@ -55,9 +61,12 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
     
     aggregates = h2h_data.get("aggregates", {})
     matches = h2h_data.get("matches", [])
-    
-    num_matches = aggregates.get("numberOfMatches", 0)
-    
+
+    # Prefer the actual match list count, falling back to aggregates.
+    # Relying purely on aggregates for wins/draws/losses has proven unreliable
+    # across different H2H orientations and can skew heavily toward draws.
+    num_matches = len(matches) if matches else aggregates.get("numberOfMatches", 0)
+
     if num_matches == 0:
         return {
             "home_win_ratio": 0.33,
@@ -68,24 +77,85 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
             "away_avg_goals": 1.25,
             "h2h_matches_count": 0
         }
-    
-    # Extract aggregate stats
-    # Note: The aggregates show wins/draws/losses from each team's perspective
-    home_team_data = aggregates.get("homeTeam", {})
-    away_team_data = aggregates.get("awayTeam", {})
-    
-    # Get wins, draws, losses (these are already counted correctly in the API response)
-    home_wins = home_team_data.get("wins", 0)
-    home_draws = home_team_data.get("draws", 0)
-    away_wins = away_team_data.get("wins", 0)
-    
-    total_goals = aggregates.get("totalGoals", 0)
-    
-    # Calculate ratios
-    home_win_ratio = home_wins / num_matches if num_matches > 0 else 0.33
-    away_win_ratio = away_wins / num_matches if num_matches > 0 else 0.33
-    draw_ratio = home_draws / num_matches if num_matches > 0 else 0.34
-    avg_goals_per_match = total_goals / num_matches if num_matches > 0 else 2.5
+
+    # Compute outcome counts from the match list to ensure correctness.
+    # We transform each historical match result into the perspective of
+    # (home_team_id vs away_team_id) for the *current* fixture.
+    home_wins = 0
+    away_wins = 0
+    draws = 0
+
+    # Also compute total goals from the match list (more reliable than aggregates)
+    total_goals = 0
+
+    finished_matches = 0
+    for m in matches:
+        if m.get("status") != "FINISHED":
+            continue
+
+        score = m.get("score", {})
+        full_time = score.get("fullTime", {})
+
+        home_goals_m = full_time.get("home")
+        away_goals_m = full_time.get("away")
+        if home_goals_m is None or away_goals_m is None:
+            continue
+        try:
+            home_goals_m = int(float(home_goals_m))
+            away_goals_m = int(float(away_goals_m))
+        except (ValueError, TypeError):
+            continue
+
+        m_home_id = m.get("homeTeam", {}).get("id")
+        m_away_id = m.get("awayTeam", {}).get("id")
+        if m_home_id is None or m_away_id is None:
+            continue
+
+        # Only count matches that are actually between the two teams
+        # (defensive programming; the API should do this already).
+        teams = {m_home_id, m_away_id}
+        if home_team_id not in teams or away_team_id not in teams:
+            continue
+
+        finished_matches += 1
+        total_goals += home_goals_m + away_goals_m
+
+        # Map the result to the current fixture perspective
+        if m_home_id == home_team_id:
+            # Same orientation as current fixture
+            if home_goals_m > away_goals_m:
+                home_wins += 1
+            elif home_goals_m < away_goals_m:
+                away_wins += 1
+            else:
+                draws += 1
+        else:
+            # Reversed orientation
+            if home_goals_m > away_goals_m:
+                away_wins += 1
+            elif home_goals_m < away_goals_m:
+                home_wins += 1
+            else:
+                draws += 1
+
+    # If none were FINISHED, fall back to aggregates for goals and neutral ratios
+    if finished_matches == 0:
+        total_goals = aggregates.get("totalGoals", 0)
+        return {
+            "home_win_ratio": 0.33,
+            "away_win_ratio": 0.33,
+            "draw_ratio": 0.34,
+            "avg_goals_per_match": (total_goals / num_matches) if num_matches else 2.5,
+            "home_avg_goals": 1.25,
+            "away_avg_goals": 1.25,
+            "h2h_matches_count": num_matches
+        }
+
+    denom = finished_matches
+    home_win_ratio = home_wins / denom
+    away_win_ratio = away_wins / denom
+    draw_ratio = draws / denom
+    avg_goals_per_match = total_goals / denom
     
     # Calculate average goals per team from actual match data
     home_total_goals = 0
@@ -100,8 +170,11 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
             match_home_id = match.get("homeTeam", {}).get("id")
             match_away_id = match.get("awayTeam", {}).get("id")
             
-            home_goals = full_time.get("home", 0) or 0
-            away_goals = full_time.get("away", 0) or 0
+            try:
+                home_goals = int(float(full_time.get("home")))
+                away_goals = int(float(full_time.get("away")))
+            except (ValueError, TypeError):
+                continue
             
             # Accumulate goals from the perspective of the current match's teams
             if match_home_id == home_team_id:
@@ -111,8 +184,8 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
                 away_total_goals += home_goals
                 home_total_goals += away_goals
     
-    home_avg_goals = home_total_goals / num_matches if num_matches > 0 else 1.25
-    away_avg_goals = away_total_goals / num_matches if num_matches > 0 else 1.25
+    home_avg_goals = home_total_goals / finished_matches if finished_matches > 0 else 1.25
+    away_avg_goals = away_total_goals / finished_matches if finished_matches > 0 else 1.25
     
     return {
         "home_win_ratio": home_win_ratio,
@@ -121,13 +194,16 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
         "avg_goals_per_match": avg_goals_per_match,
         "home_avg_goals": home_avg_goals,
         "away_avg_goals": away_avg_goals,
-        "h2h_matches_count": num_matches
+        "h2h_matches_count": finished_matches
     }
 
 
 def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: Optional[Dict] = None, away_stats: Optional[Dict] = None) -> Tuple[float, float, float]:
     """
     Predict match outcome using H2H features and optional team stats.
+    
+    Uses a Bayesian-inspired approach: with few H2H matches, we blend heavily
+    with league average base rates. As H2H sample size grows, we trust H2H more.
     
     Args:
         h2h_features: H2H features dictionary
@@ -137,10 +213,23 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
     Returns:
         Tuple of (home_win_prob, draw_prob, away_win_prob)
     """
-    # Base probabilities from H2H history
-    home_win_base = h2h_features["home_win_ratio"]
-    draw_base = h2h_features["draw_ratio"]
-    away_win_base = h2h_features["away_win_ratio"]
+    # H2H probabilities from historical data
+    h2h_home_win = h2h_features["home_win_ratio"]
+    h2h_draw = h2h_features["draw_ratio"]
+    h2h_away_win = h2h_features["away_win_ratio"]
+    
+    # Determine how much to trust H2H based on sample size
+    # With 1 match: ~20% H2H, 80% league average
+    # With 5 matches: ~60% H2H, 40% league average
+    # With 10+ matches: ~90% H2H, 10% league average
+    h2h_count = h2h_features.get("h2h_matches_count", 0)
+    h2h_weight = min(0.9, 0.2 + (h2h_count * 0.1))  # Caps at 90% starting at 7 matches
+    league_weight = 1.0 - h2h_weight
+    
+    # Blend H2H with league averages
+    home_win_base = (h2h_home_win * h2h_weight) + (LEAGUE_AVG_HOME_WIN * league_weight)
+    draw_base = (h2h_draw * h2h_weight) + (LEAGUE_AVG_DRAW * league_weight)
+    away_win_base = (h2h_away_win * h2h_weight) + (LEAGUE_AVG_AWAY_WIN * league_weight)
     
     # If we have recent team form, adjust probabilities
     if home_stats and away_stats:
@@ -148,13 +237,16 @@ def predict_match_outcome_from_h2h(h2h_features: Dict[str, float], home_stats: O
         goal_diff = (home_stats.get("goals_for", DEFAULT_GOALS_FOR) - home_stats.get("goals_against", DEFAULT_GOALS_AGAINST)) - \
                     (away_stats.get("goals_for", DEFAULT_GOALS_FOR) - away_stats.get("goals_against", DEFAULT_GOALS_AGAINST))
         
-        # Adjust based on current form (scale: 0.1 means form has 10% weight)
+        # Adjust based on current form (outputs range -0.5 to 0.5)
         form_adjustment = sigmoid(form_diff * 0.5) - 0.5  # -0.5 to 0.5
         goal_adjustment = sigmoid(goal_diff * 0.3) - 0.5  # -0.5 to 0.5
         
-        # Blend H2H with recent form (70% H2H, 30% recent form)
-        home_win_base = home_win_base * 0.7 + (home_win_base + form_adjustment * 0.3 + goal_adjustment * 0.3) * 0.3
-        away_win_base = away_win_base * 0.7 + (away_win_base - form_adjustment * 0.3 - goal_adjustment * 0.3) * 0.3
+        # Apply form adjustments (15% weight to recent form, 85% to base probabilities)
+        combined_adjustment = form_adjustment + goal_adjustment
+        home_win_base = home_win_base * 0.85 + combined_adjustment * 0.15
+        away_win_base = away_win_base * 0.85 - combined_adjustment * 0.15
+        # Reduce draw probability proportionally to the magnitude of form difference
+        draw_base = draw_base * max(0.0, 1.0 - abs(combined_adjustment) * 0.15)
     
     # Ensure probabilities are positive and normalized
     home_win_base = max(0.05, home_win_base)
