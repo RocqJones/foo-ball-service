@@ -97,7 +97,7 @@ def extract_h2h_features(h2h_data: Optional[Dict[str, Any]], home_team_id: int, 
 
         m_home_id = m.get("homeTeam", {}).get("id")
         m_away_id = m.get("awayTeam", {}).get("id")
-        if not m_home_id or not m_away_id:
+        if m_home_id is None or m_away_id is None:
             continue
 
         # Only count matches that are actually between the two teams
