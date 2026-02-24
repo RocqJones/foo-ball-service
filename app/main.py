@@ -1,9 +1,10 @@
 from fastapi import FastAPI, status, Body, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 from pydantic import BaseModel
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Sequence
+import html
 from app.config.settings import Settings
 from app.services.prediction_v2 import get_predictions_today as predict_today_v2, get_persisted_predictions_today
 from app.services.ranking import rank_predictions
@@ -12,8 +13,113 @@ from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware
 from app.utils.logger import logger
 from app.security.auth import verify_admin_key
+from app.legal_content import (
+    PRIVACY_POLICY_SECTIONS,
+    TERMS_AND_CONDITIONS_SECTIONS,
+    LegalSection,
+)
 
 app = FastAPI(title="Foo Ball Service")
+
+
+# ==========================================================================
+# Public browser pages (non-API) - Privacy Policy & Terms
+# ==========================================================================
+
+_LEGAL_PAGE_CSS = """
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: #0b1220; color: #e6edf3; }
+    a { color: #7dd3fc; text-decoration: underline; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 56px; }
+    header { margin-bottom: 18px; }
+    .brand { font-weight: 700; letter-spacing: 0.2px; color: #cbd5e1; font-size: 14px; text-transform: uppercase; }
+    h1 { margin: 10px 0 6px; font-size: 34px; line-height: 1.15; }
+    .subtitle { margin: 0; color: #a8b3cf; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(148,163,184,0.23); border-radius: 14px; padding: 18px 18px; margin: 16px 0; }
+    h2 { margin: 0 0 10px; font-size: 18px; color: #e2e8f0; }
+    p { margin: 10px 0; color: #d6deea; }
+    ul { margin: 10px 0 0; padding-left: 20px; }
+    li { margin: 7px 0; color: #d6deea; }
+    .meta { display:flex; gap:12px; flex-wrap:wrap; margin-top: 10px; color:#a8b3cf; font-size: 14px; }
+    .pill { background: rgba(125,211,252,0.10); border: 1px solid rgba(125,211,252,0.25); padding: 4px 10px; border-radius: 999px; }
+    footer { margin-top: 26px; color:#94a3b8; font-size: 13px; }
+    .divider { height: 1px; background: rgba(148,163,184,0.18); margin: 14px 0; }
+"""
+
+
+def _render_legal_page(title: str, updated_date: str, sections: Sequence[LegalSection]) -> str:
+    """Render a simple, accessible HTML page for legal text."""
+    safe_title = html.escape(title, quote=True)
+    safe_updated_date = html.escape(updated_date, quote=True)
+
+    sections_html = []
+    for s in sections:
+        safe_heading = html.escape(s.heading, quote=True)
+
+        bullets = "".join(
+            f"<li>{html.escape(str(b), quote=True)}</li>" for b in (s.bullets or [])
+        )
+
+        body = s.body
+        body_html = f"<p>{html.escape(body, quote=True)}</p>" if body else ""
+        ul_html = f"<ul>{bullets}</ul>" if bullets else ""
+
+        sections_html.append(
+            """
+            <section class="card">
+                            <h2>{heading}</h2>
+              {body_html}
+              {ul_html}
+            </section>
+            """.format(
+                                heading=safe_heading,
+                body_html=body_html,
+                ul_html=ul_html,
+            )
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{safe_title} | Foo Ball Service</title>
+    <style>{_LEGAL_PAGE_CSS}</style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">Foo Ball Service</div>
+                <h1>{safe_title}</h1>
+        <p class="subtitle">This page is provided for transparency and compliance. It’s readable in any browser.</p>
+        <div class="meta">
+                    <span class="pill">Last updated: {safe_updated_date}</span>
+          <span class="pill"><a href="/health">Service status</a></span>
+        </div>
+      </header>
+      <div class="divider"></div>
+      {"".join(sections_html)}
+      <footer>
+        <div class="divider"></div>
+        <div>Questions? Contact the service owner/administrator for support and privacy inquiries.</div>
+      </footer>
+    </div>
+  </body>
+</html>"""
+
+
+@app.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
+def privacy_policy_page():
+    updated_date = date.today().isoformat()
+    html = _render_legal_page("Privacy Policy", updated_date, PRIVACY_POLICY_SECTIONS)
+    return html
+
+
+@app.get("/terms", include_in_schema=False, response_class=HTMLResponse)
+def terms_and_conditions_page():
+    updated_date = date.today().isoformat()
+    html = _render_legal_page("Terms & Conditions", updated_date, TERMS_AND_CONDITIONS_SECTIONS)
+    return html
 
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
