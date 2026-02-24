@@ -21,7 +21,7 @@ app = FastAPI(title="Foo Ball Service")
 # ==========================================================================
 
 _LEGAL_PAGE_CSS = """
-    :root { color-scheme: light; }
+    :root { color-scheme: dark; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: #0b1220; color: #e6edf3; }
     a { color: #7dd3fc; }
     .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 56px; }
