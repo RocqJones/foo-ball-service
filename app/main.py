@@ -94,7 +94,7 @@ def _render_legal_page(title: str, updated_date: str, sections: list[dict]) -> s
 </html>"""
 
 
-@app.get("/privacy", include_in_schema=False)
+@app.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
 def privacy_policy_page():
     updated_date = date.today().isoformat()
     sections = [
@@ -168,10 +168,10 @@ def privacy_policy_page():
         },
     ]
     html = _render_legal_page("Privacy Policy", updated_date, sections)
-    return HTMLResponse(content=html)
+    return html
 
 
-@app.get("/terms", include_in_schema=False)
+@app.get("/terms", include_in_schema=False, response_class=HTMLResponse)
 def terms_and_conditions_page():
     updated_date = date.today().isoformat()
     sections = [
@@ -249,7 +249,7 @@ def terms_and_conditions_page():
         },
     ]
     html = _render_legal_page("Terms & Conditions", updated_date, sections)
-    return HTMLResponse(content=html)
+    return html
 
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
