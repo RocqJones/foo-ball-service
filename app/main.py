@@ -1,5 +1,5 @@
 from fastapi import FastAPI, status, Body, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 from pydantic import BaseModel
 from datetime import date
@@ -14,6 +14,242 @@ from app.utils.logger import logger
 from app.security.auth import verify_admin_key
 
 app = FastAPI(title="Foo Ball Service")
+
+
+# ==========================================================================
+# Public browser pages (non-API) - Privacy Policy & Terms
+# ==========================================================================
+
+_LEGAL_PAGE_CSS = """
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: #0b1220; color: #e6edf3; }
+    a { color: #7dd3fc; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 56px; }
+    header { margin-bottom: 18px; }
+    .brand { font-weight: 700; letter-spacing: 0.2px; color: #cbd5e1; font-size: 14px; text-transform: uppercase; }
+    h1 { margin: 10px 0 6px; font-size: 34px; line-height: 1.15; }
+    .subtitle { margin: 0; color: #a8b3cf; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(148,163,184,0.23); border-radius: 14px; padding: 18px 18px; margin: 16px 0; }
+    h2 { margin: 0 0 10px; font-size: 18px; color: #e2e8f0; }
+    p { margin: 10px 0; color: #d6deea; }
+    ul { margin: 10px 0 0; padding-left: 20px; }
+    li { margin: 7px 0; color: #d6deea; }
+    .meta { display:flex; gap:12px; flex-wrap:wrap; margin-top: 10px; color:#a8b3cf; font-size: 14px; }
+    .pill { background: rgba(125,211,252,0.10); border: 1px solid rgba(125,211,252,0.25); padding: 4px 10px; border-radius: 999px; }
+    footer { margin-top: 26px; color:#94a3b8; font-size: 13px; }
+    .divider { height: 1px; background: rgba(148,163,184,0.18); margin: 14px 0; }
+"""
+
+
+def _render_legal_page(title: str, updated_date: str, sections: list[dict]) -> str:
+    """Render a simple, accessible HTML page for legal text."""
+    sections_html = []
+    for s in sections:
+        bullets = "".join(f"<li>{b}</li>" for b in s.get("bullets", []))
+        body = s.get("body")
+        body_html = f"<p>{body}</p>" if body else ""
+        ul_html = f"<ul>{bullets}</ul>" if bullets else ""
+
+        sections_html.append(
+            """
+            <section class="card">
+              <h2>{heading}</h2>
+              {body_html}
+              {ul_html}
+            </section>
+            """.format(
+                heading=s["heading"],
+                body_html=body_html,
+                ul_html=ul_html,
+            )
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} | Foo Ball Service</title>
+    <style>{_LEGAL_PAGE_CSS}</style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">Foo Ball Service</div>
+        <h1>{title}</h1>
+        <p class="subtitle">This page is provided for transparency and compliance. It’s readable in any browser.</p>
+        <div class="meta">
+          <span class="pill">Last updated: {updated_date}</span>
+          <span class="pill"><a href="/health">Service status</a></span>
+        </div>
+      </header>
+      <div class="divider"></div>
+      {"".join(sections_html)}
+      <footer>
+        <div class="divider"></div>
+        <div>Questions? Contact the service owner/administrator for support and privacy inquiries.</div>
+      </footer>
+    </div>
+  </body>
+</html>"""
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy_policy_page():
+    updated_date = date.today().isoformat()
+    sections = [
+        {
+            "heading": "Overview",
+            "body": "Foo Ball Service is a football match prediction and data aggregation service. This Privacy Policy explains what we collect, how we use it, and the choices you have.",
+        },
+        {
+            "heading": "Information we collect",
+            "bullets": [
+                "Request metadata: approximate timestamp, endpoint, HTTP method, response status, and basic user-agent information.",
+                "Security metadata (when enabled): authentication/authorization outcomes (for example, whether an admin key was provided/validated).",
+                "Operational logs: error traces and performance timings used to keep the service reliable.",
+                "Stored football data: competition, fixture, and head-to-head datasets retrieved from third-party providers and cached in our database.",
+                "We do not intentionally collect special-category personal data (e.g., health, biometrics) or payment information.",
+            ],
+        },
+        {
+            "heading": "How we use information",
+            "bullets": [
+                "Provide core functionality (predictions, rankings, fixtures, and supporting metrics).",
+                "Maintain, monitor, and improve service reliability and security (e.g., debugging, rate-limit protection, fraud/abuse prevention).",
+                "Comply with legal obligations and enforce our Terms.",
+            ],
+        },
+        {
+            "heading": "Cookies and tracking",
+            "bullets": [
+                "The service does not set advertising cookies by default.",
+                "If you deploy Foo Ball Service behind a proxy/load balancer or add analytics, those components may introduce cookies or tracking—review your deployment configuration.",
+            ],
+        },
+        {
+            "heading": "Sharing and disclosure",
+            "bullets": [
+                "We do not sell your personal information.",
+                "We may share limited data with infrastructure providers (hosting, monitoring, database) strictly to operate the service.",
+                "We may disclose information if required by law, regulation, or legal process.",
+                "Football data may originate from third-party providers. Their terms and privacy practices apply to their services.",
+            ],
+        },
+        {
+            "heading": "Data retention",
+            "bullets": [
+                "Service logs are retained for troubleshooting and security auditing for a limited period based on operational needs.",
+                "Cached sports datasets (competitions/matches/H2H) may be retained to reduce repeated third-party API calls.",
+                "Prediction outputs may be retained for a limited time and may be periodically cleaned as part of maintenance jobs.",
+            ],
+        },
+        {
+            "heading": "Security",
+            "bullets": [
+                "We use reasonable security measures such as authentication for restricted endpoints, logging, and monitoring.",
+                "No method of transmission or storage is 100% secure; we cannot guarantee absolute security.",
+            ],
+        },
+        {
+            "heading": "Your choices",
+            "bullets": [
+                "If you operate your own deployment, you can configure log levels, retention, and access controls.",
+                "If you are an end user of a hosted deployment, contact the service owner to request access, correction, or deletion where applicable.",
+            ],
+        },
+        {
+            "heading": "International users",
+            "body": "If you access the service from outside the country where it is hosted, your information may be processed in that hosting region.",
+        },
+        {
+            "heading": "Changes to this policy",
+            "body": "We may update this Privacy Policy from time to time. The ‘Last updated’ date reflects the latest revision.",
+        },
+    ]
+    html = _render_legal_page("Privacy Policy", updated_date, sections)
+    return HTMLResponse(content=html)
+
+
+@app.get("/terms", include_in_schema=False)
+def terms_and_conditions_page():
+    updated_date = date.today().isoformat()
+    sections = [
+        {
+            "heading": "Agreement to terms",
+            "body": "By accessing or using Foo Ball Service, you agree to these Terms and Conditions. If you do not agree, do not use the service.",
+        },
+        {
+            "heading": "Service description",
+            "bullets": [
+                "The service provides football data retrieval, caching, and match prediction outputs.",
+                "Predictions are informational only and may be inaccurate.",
+                "The service may change, suspend, or be discontinued at any time.",
+            ],
+        },
+        {
+            "heading": "No betting or financial advice",
+            "bullets": [
+                "Predictions are not guarantees and do not constitute betting, investment, or financial advice.",
+                "You are solely responsible for decisions you make based on the service.",
+            ],
+        },
+        {
+            "heading": "Acceptable use",
+            "bullets": [
+                "Do not misuse the service (e.g., attempt unauthorized access, abuse rate limits, or interfere with normal operation).",
+                "Do not use the service to violate applicable laws or third-party rights.",
+                "Automated scraping is allowed only if it respects rate limits and does not degrade service availability.",
+            ],
+        },
+        {
+            "heading": "Accounts, authentication, and admin endpoints",
+            "bullets": [
+                "Some endpoints may require an admin key or other credentials.",
+                "You are responsible for maintaining the confidentiality of credentials and for all activity under them.",
+                "We may revoke or rotate credentials if misuse is detected.",
+            ],
+        },
+        {
+            "heading": "Third-party services and data",
+            "bullets": [
+                "The service may rely on third-party football data providers and infrastructure components.",
+                "Third-party terms may apply; availability and correctness of third-party data is not guaranteed.",
+            ],
+        },
+        {
+            "heading": "Intellectual property",
+            "bullets": [
+                "The software, APIs, and documentation may be protected by intellectual property laws.",
+                "Team names, logos, and competition marks belong to their respective owners and are used for identification purposes.",
+            ],
+        },
+        {
+            "heading": "Disclaimers",
+            "bullets": [
+                "The service is provided ‘as is’ and ‘as available’ without warranties of any kind.",
+                "We do not warrant uninterrupted, secure, or error-free operation.",
+            ],
+        },
+        {
+            "heading": "Limitation of liability",
+            "body": "To the maximum extent permitted by law, we are not liable for indirect, incidental, special, consequential, or exemplary damages arising from your use of the service.",
+        },
+        {
+            "heading": "Termination",
+            "body": "We may suspend or terminate access to the service at any time if we reasonably believe you violated these Terms or if necessary to protect the service.",
+        },
+        {
+            "heading": "Governing law",
+            "body": "These Terms are governed by the laws applicable in the jurisdiction where the service operator is established, unless otherwise required by law.",
+        },
+        {
+            "heading": "Contact",
+            "body": "For questions about these Terms, contact the service owner/administrator.",
+        },
+    ]
+    html = _render_legal_page("Terms & Conditions", updated_date, sections)
+    return HTMLResponse(content=html)
 
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
