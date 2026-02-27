@@ -64,7 +64,27 @@ def create_indexes():
     fixtures_col.create_index([("fixture_id", ASCENDING)], background=True)
     fixtures_col.create_index([("fixture.date", ASCENDING)], background=True)
     logger.info("✓ Created indexes for 'fixtures' collection (legacy)")
-    
+
+    # ── Install tracking: users collection ──────────────────────────────────
+    users_col = db["users"]
+    users_col.create_index(
+        [("installation_id", ASCENDING)], unique=True, background=True
+    )
+    users_col.create_index(
+        [("google_id", ASCENDING)],
+        unique=True,
+        sparse=True,   # allows multiple null google_ids
+        background=True,
+    )
+    logger.info("✓ Created indexes for 'users' collection")
+
+    # ── Install tracking: api_usage_logs collection ─────────────────────────
+    logs_col = db["api_usage_logs"]
+    logs_col.create_index([("installation_id", ASCENDING)], background=True)
+    logs_col.create_index([("endpoint", ASCENDING)], background=True)
+    logs_col.create_index([("created_at", DESCENDING)], background=True)
+    logger.info("✓ Created indexes for 'api_usage_logs' collection")
+
     logger.info("All indexes created successfully!")
 
 

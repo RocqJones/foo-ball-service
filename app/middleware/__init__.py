@@ -3,6 +3,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 import time
 from app.utils.logger import log_api_request, log_security_event
+from app.middleware.install_tracking import InstallTrackingMiddleware  # noqa: F401
 
 
 class APILoggingMiddleware(BaseHTTPMiddleware):
