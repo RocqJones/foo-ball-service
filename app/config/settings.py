@@ -16,6 +16,11 @@ class Settings:
     # MUST be set in production to secure admin endpoints
     ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 
+    # Google OAuth2 client ID used to validate id_tokens from the Android app.
+    # Set this to your Android OAuth2 client ID (or Web client ID if using
+    # Firebase Auth).  If not set, audience validation is skipped (dev only).
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+
     MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     DB_NAME = os.getenv("DB_NAME", "foo_ball_service")
 
@@ -48,5 +53,8 @@ class Settings:
     MAX_H2H_PER_DAY = 10
 
     DEFAULT_LIMIT = 35
+
+    # Number of free /fixtures/ingest calls before Google auth is required.
+    FREE_INGEST_LIMIT: int = int(os.getenv("FREE_INGEST_LIMIT", "3"))
 
 settings = Settings()
