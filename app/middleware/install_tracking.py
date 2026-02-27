@@ -142,7 +142,7 @@ class InstallTrackingMiddleware(BaseHTTPMiddleware):
                         "status": "error",
                         "message": "AUTH_REQUIRED",
                         "data": {
-                            "reason": "Sign-in required after 2 free usages."
+                            "reason": f"Sign-in required after {FREE_INGEST_LIMIT} free usages."
                         },
                     },
                 )
@@ -162,7 +162,12 @@ class InstallTrackingMiddleware(BaseHTTPMiddleware):
         # ── 7. Post-response: increment ingest count on success ──────────────
         if is_ingest and 200 <= status_code < 300:
             try:
-                increment_ingest_count(installation_id)
+                new_count = increment_ingest_count(installation_id)
+                logger.debug(
+                    "[tracking] Incremented fixtures_ingest_count for %s to %s",
+                    installation_id,
+                    new_count,
+                )
             except Exception as exc:
                 logger.warning(f"[tracking] Could not increment fixtures_ingest_count: {exc}")
 
