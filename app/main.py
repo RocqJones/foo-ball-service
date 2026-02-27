@@ -12,6 +12,7 @@ from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
 from app.middleware import APILoggingMiddleware, InstallTrackingMiddleware
 from app.routers.auth import router as auth_router
+from app.routers.user import router as user_router
 from app.utils.logger import logger
 from app.security.auth import verify_admin_key
 from app.legal_content import (
@@ -132,6 +133,7 @@ app.add_middleware(InstallTrackingMiddleware)
 
 # ── Routers ────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
+app.include_router(user_router)
 
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
@@ -223,7 +225,7 @@ def ingest_todays_fixtures(request: Request):
         - teams_updated: Number of team stats updated
         - note: Reminder that H2H is lazy-loaded
         - errors: List of any errors encountered
-        - user: Current anonymous/authenticated user snapshot
+        - user: Usage counters only (no sensitive fields — use GET /user/me for full profile)
     """
     from app.services.install_tracking import get_user
 
@@ -241,13 +243,9 @@ def ingest_todays_fixtures(request: Request):
         user_data = None
         if raw_user:
             user_data = {
-                "installation_id": raw_user.get("installation_id"),
                 "is_authenticated": raw_user.get("is_authenticated", False),
                 "fixtures_ingest_count": raw_user.get("fixtures_ingest_count", 0),
                 "total_api_calls": raw_user.get("total_api_calls", 0),
-                "app_version": raw_user.get("app_version"),
-                "email": raw_user.get("email"),
-                "name": raw_user.get("name"),
             }
 
         return JSONResponse(

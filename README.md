@@ -949,6 +949,7 @@ All endpoints return standardized responses:
 | `/predictions/top-picks` | GET | `X-Install-Id` | Get ranked predictions |
 | `/fixtures/ingest` | GET | `X-Install-Id` (2 free, then sign-in) | Trigger ingestion pipeline |
 | `/auth/firebase` | POST | `X-Install-Id` | Firebase sign-in / upsert user |
+| `/user/me` | GET | `X-Install-Id` + `X-Client-Id` | Full user profile (authenticated only) |
 
 ### Android Request Headers
 
