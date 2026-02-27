@@ -10,6 +10,8 @@ A football match prediction service powered by **Football-Data.org v4 API** with
 ✅ **Clean API Design** - No source implementation details exposed to frontend  
 ✅ **Rate Limit Protection** - Built-in safeguards prevent API exhaustion  
 ✅ **Frontend-Friendly** - No manual ingestion required, everything auto-fetches  
+✅ **Anonymous Install Tracking** - Device fingerprinting via installation ID, no login required  
+✅ **Firebase Google Auth** - Seamless sign-in upgrade after free-tier limit  
 
 > **Migration Note**: This service has been migrated from API-Football to Football-Data.org v4 with a completely redesigned architecture. See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for details.
 
@@ -24,6 +26,8 @@ A football match prediction service powered by **Football-Data.org v4 API** with
 - **Lazy H2H loading** - Fetches head-to-head data on-demand (max 10/day) only when predictions requested
 - **Protected caching** - Competitions and matches permanently cached, never cleaned
 - **RESTful API** - Clean endpoints that mask data source implementation
+- **Anonymous tracking** - Every Android install is tracked by UUID; users get 2 free `/fixtures/ingest` calls before sign-in is required
+- **Firebase Auth** - Google sign-in via Firebase upgrades anonymous users to authenticated
 
 ## Architecture Overview
 
@@ -43,6 +47,27 @@ Frontend Request Flow:
 │     ↓ Lazy-loads H2H for today's matches (max 10/day)      │
 │     ↓ Generates predictions with H2H enhancement            │
 │     ↓ Returns only matches with H2H available               │
+└─────────────────────────────────────────────────────────────┘
+
+Install Tracking & Auth Flow (Android):
+┌─────────────────────────────────────────────────────────────┐
+│  Every request must include:                                │
+│    X-Install-Id: <uuid>      ← generated once on install   │
+│    X-App-Version: <version>  ← e.g. "1.0.0"               │
+│                                                             │
+│  Anonymous (calls 1–2):                                     │
+│    GET /fixtures/ingest  → 200 OK + user snapshot          │
+│                                                             │
+│  On 3rd call (unauthenticated):                             │
+│    GET /fixtures/ingest  → 403 AUTH_REQUIRED               │
+│                                                             │
+│  After Google sign-in via Firebase:                         │
+│    POST /auth/firebase   → 200 OK + user snapshot          │
+│                                                             │
+│  Authenticated (all subsequent calls):                      │
+│    X-Install-Id: <uuid>                                     │
+│    X-Client-Id: <firebase-uid>  ← required after sign-in  │
+│    GET /fixtures/ingest  → 200 OK (unlimited)              │
 └─────────────────────────────────────────────────────────────┘
 
 Data Protection:
@@ -88,18 +113,27 @@ app/
 │   └── daily_run.py               # Daily ingestion pipeline
 ├── services/
 │   ├── ingestion.py               # Data ingestion with caching
+│   ├── install_tracking.py        # Install tracking + user upsert logic
 │   ├── prediction_v2.py           # H2H-enhanced predictions
 │   ├── team_stats_v2.py           # Team statistics computation
 │   └── ranking.py                 # Prediction ranking logic
+├── middleware/
+│   ├── __init__.py                # Exports APILoggingMiddleware
+│   └── install_tracking.py       # InstallTrackingMiddleware (auth gate)
+├── routers/
+│   └── auth.py                   # POST /auth/firebase (Firebase Android SDK)
+├── security/
+│   ├── auth.py                   # Admin key verification
+│   └── google_auth.py            # Firebase id_token verification
 ├── models/
 │   └── rule_based.py              # Prediction algorithms
 ├── data_sources/
 │   └── football_data_api.py       # Football-Data.org API client
 ├── db/
 │   ├── mongo.py                   # MongoDB connection
-│   └── schemas.py                 # Database indexes
+│   └── schemas.py                 # Database indexes (incl. users, api_usage_logs)
 └── config/
-    └── settings.py                # Configuration
+    └── settings.py                # Configuration (incl. FREE_INGEST_LIMIT)
 
 scripts/
 ├── init_db.py                     # Database initialization
@@ -114,6 +148,7 @@ logs/                              # Application logs
 - **Python 3.11+**
 - **MongoDB** (local or remote)
 - **Football-Data.org API key** (free tier: 10 req/min)
+- **Google Cloud project** with OAuth2 Web Client ID (for Firebase Auth)
 
 Get your API key: https://www.football-data.org/client/register
 
@@ -146,6 +181,10 @@ DB_NAME=foo_ball_service
 # Admin API Key (Required for database management)
 # Generate: openssl rand -hex 32
 ADMIN_API_KEY=your_secure_admin_key_here
+
+# Google / Firebase Auth (Required for Android sign-in)
+# Use the Web Client ID from Google Cloud Console (not the Android Client ID)
+GOOGLE_CLIENT_ID=your_web_client_id.apps.googleusercontent.com
 ```
 
 ### 3. Initialize Database
@@ -197,6 +236,119 @@ python app/jobs/daily_run.py
 ```
 
 ## API Endpoints
+
+---
+
+## 📱 Android Install Tracking & Authentication
+
+Every request from the Android app **must** include these headers:
+
+| Header | Required | Description |
+|---|---|---|
+| `X-Install-Id` | ✅ Always | UUID generated once on first install |
+| `X-App-Version` | Recommended | e.g. `"1.0.0"` |
+| `X-Client-Id` | ✅ After sign-in | Firebase UID — required once `is_authenticated = true` |
+
+Missing `X-Install-Id` → `400`. Wrong or missing `X-Client-Id` for an authenticated user → `401`.
+
+### Free-tier quota
+
+Anonymous users get **2 free** `/fixtures/ingest` calls. On the 3rd call the middleware returns:
+
+```json
+{
+  "statusCode": 403,
+  "status": "error",
+  "message": "AUTH_REQUIRED",
+  "data": { "reason": "Sign-in required after 2 free usages." }
+}
+```
+
+The Android app should trigger the Firebase Google sign-in flow and then call `POST /auth/firebase`.
+
+---
+
+### Authentication Endpoints
+
+#### POST /auth/firebase
+
+The **only** auth endpoint. Called after the user signs in with Google via the Firebase Auth Android SDK.
+
+> **Why Firebase, not Google?**  
+> Even though the user picks a Google account, the Firebase SDK wraps it in a
+> Firebase session and issues its own short-lived token from
+> `firebaseUser.getIdToken()`. That token is signed by Firebase's keys — not
+> Google's OAuth2 keys — so it must be verified differently. Your backend
+> never needs to touch a raw Google OAuth2 token.
+
+**Android Kotlin flow:**
+```kotlin
+// Step 1 — build credential from Google Sign-In result
+val googleCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+
+// Step 2 — hand it to Firebase
+FirebaseAuth.getInstance()
+    .signInWithCredential(googleCredential)
+    .addOnSuccessListener { result ->
+
+        // Step 3 — get the FIREBASE token (not the Google one)
+        result.user?.getIdToken(false)
+            ?.addOnSuccessListener { tokenResult ->
+
+                // Step 4 — call your backend
+                api.postAuthFirebase(
+                    idToken = tokenResult.token!!,
+                    installationId = prefs.getString("installation_id")
+                )
+            }
+    }
+```
+
+**Request:**
+```bash
+POST /auth/firebase
+Content-Type: application/json
+X-Install-Id: <uuid>
+X-App-Version: 1.0.0
+```
+```json
+{
+  "id_token": "<firebaseUser.getIdToken() result>",
+  "installation_id": "<uuid stored on device>"
+}
+```
+
+**Behaviour:**
+- Verifies the Firebase id_token against Firebase's public keys
+- **Upserts** the user — upgrades the existing anonymous user document, or
+  creates a brand-new one if the `installation_id` was never seen before
+- Sets `is_authenticated = true` and stores the Firebase UID
+
+**Response (200):**
+```json
+{
+  "statusCode": 200,
+  "status": "success",
+  "message": "Authentication successful",
+  "data": {
+    "user_id": "507f1f77bcf86cd799439011",
+    "installation_id": "a1b2c3d4-...",
+    "email": "user@gmail.com",
+    "name": "John Doe",
+    "picture": "https://...",
+    "is_authenticated": true,
+    "fixtures_ingest_count": 2,
+    "total_api_calls": 5,
+    "app_version": "1.0.0"
+  }
+}
+```
+
+> ⚠️ After a 200 response, store `data.user_id` (which is the Firebase UID
+> stored as `google_id` in the DB) and include it as `X-Client-Id` in **every
+> subsequent request**.
+
+---
 
 ### Public Endpoints
 
@@ -788,38 +940,37 @@ All endpoints return standardized responses:
 
 ### Essential Endpoints
 
-| Endpoint | Method | Purpose | Auto-Fetch |
-|----------|--------|---------|------------|
-| `/health` | GET | Service health check | No |
-| `/competitions` | GET | Get all competitions | ✅ Yes (if empty) |
-| `/matches` | POST | Get matches by competition | ✅ Yes (if empty) |
-| `/predictions/today` | GET | Get H2H predictions | ✅ Yes (H2H lazy load) |
-| `/predictions/top-picks` | GET | Get ranked predictions | No |
+| Endpoint | Method | Auth required | Purpose |
+|---|---|---|---|
+| `/health` | GET | No | Service health check |
+| `/competitions` | GET | `X-Install-Id` | Get all competitions |
+| `/matches` | POST | `X-Install-Id` | Get matches by competition |
+| `/predictions/today` | GET | `X-Install-Id` | Get H2H predictions |
+| `/predictions/top-picks` | GET | `X-Install-Id` | Get ranked predictions |
+| `/fixtures/ingest` | GET | `X-Install-Id` (2 free, then sign-in) | Trigger ingestion pipeline |
+| `/auth/firebase` | POST | `X-Install-Id` | Firebase sign-in / upsert user |
 
-### Request Examples
+### Android Request Headers
 
-```bash
-# Get competitions
-curl http://localhost:8000/competitions
+```
+# Anonymous (before sign-in)
+X-Install-Id:   a1b2c3d4-uuid-generated-on-first-install
+X-App-Version:  1.0.0
 
-# Get Premier League matches
-curl -X POST http://localhost:8000/matches \
-  -H "Content-Type: application/json" \
-  -d '{"competition_code": "PL", "status_filter": "SCHEDULED"}'
-
-# Get today's predictions
-curl http://localhost:8000/predictions/today
-
-# Get top 10 picks
-curl http://localhost:8000/predictions/top-picks?limit=10
+# Authenticated (after POST /auth/firebase succeeds)
+X-Install-Id:   a1b2c3d4-uuid-generated-on-first-install
+X-App-Version:  1.0.0
+X-Client-Id:    <firebase-uid from auth response data.user_id>
 ```
 
 ### Data Protection Rules
 
 | Collection | Status | Cleanup |
-|------------|--------|---------|
+|---|---|---|
 | `competitions` | 🛡️ PROTECTED | Never |
 | `matches` | 🛡️ PROTECTED | Never |
+| `users` | 🛡️ PROTECTED | Never |
+| `api_usage_logs` | 🛡️ PROTECTED | Never |
 | `predictions` | 🧹 Cleanable | After 7 days |
 | `team_stats` | 🧹 Cleanable | After 7 days |
 | `fixtures` (legacy) | 🧹 Cleanable | After 7 days |

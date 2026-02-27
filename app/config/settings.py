@@ -55,6 +55,6 @@ class Settings:
     DEFAULT_LIMIT = 35
 
     # Number of free /fixtures/ingest calls before Google auth is required.
-    FREE_INGEST_LIMIT: int = 2
+    FREE_INGEST_LIMIT: int = 4
 
 settings = Settings()

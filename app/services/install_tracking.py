@@ -90,6 +90,51 @@ def get_user(installation_id: str) -> Optional[dict]:
     return get_collection("users").find_one({"installation_id": installation_id})
 
 
+def upsert_firebase_user(
+    installation_id: str,
+    firebase_uid: str,
+    email: str,
+    name: str,
+    picture: str,
+    app_version: Optional[str] = None,
+) -> dict:
+    """
+    Upsert a user by ``installation_id`` after Firebase authentication.
+
+    - If the document exists → update Google/Firebase fields and mark authenticated.
+    - If it does NOT exist (e.g. fresh install that skipped anonymous tracking)
+      → create a full user document so nothing breaks downstream.
+
+    Returns the final document after the upsert.
+    """
+    users = get_collection("users")
+    now = datetime.now(timezone.utc)
+
+    user = users.find_one_and_update(
+        {"installation_id": installation_id},
+        {
+            "$setOnInsert": {
+                "installation_id": installation_id,
+                "fixtures_ingest_count": 0,
+                "total_api_calls": 0,
+                "created_at": now,
+            },
+            "$set": {
+                "google_id": firebase_uid,
+                "email": email,
+                "name": name,
+                "picture": picture,
+                "is_authenticated": True,
+                "last_seen": now,
+                "app_version": app_version or "unknown",
+            },
+        },
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Usage logging
 # ---------------------------------------------------------------------------
