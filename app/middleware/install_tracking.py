@@ -142,7 +142,7 @@ class InstallTrackingMiddleware(BaseHTTPMiddleware):
                         "status": "error",
                         "message": "AUTH_REQUIRED",
                         "data": {
-                            "reason": "Sign-in required after 2 free usages."
+                            "reason": f"Sign-in required after {FREE_INGEST_LIMIT} free usages."
                         },
                     },
                 )
