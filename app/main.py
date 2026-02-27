@@ -125,9 +125,10 @@ def terms_and_conditions_page():
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
 
-# InstallTrackingMiddleware: added after APILoggingMiddleware so it runs as
-# the inner layer (closer to the route handler). Starlette stacks middleware
-# in LIFO order, meaning the last-added middleware is the first to run.
+# InstallTrackingMiddleware: added after APILoggingMiddleware so it becomes
+# the outer layer (it runs first on requests and last on responses, wrapping
+# APILoggingMiddleware). In Starlette, the last-added middleware is the
+# outermost layer and runs first.
 app.add_middleware(InstallTrackingMiddleware)
 
 # ── Routers ────────────────────────────────────────────────────────────────
