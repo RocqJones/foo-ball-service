@@ -10,7 +10,8 @@ from app.services.prediction_v2 import get_predictions_today as predict_today_v2
 from app.services.ranking import rank_predictions
 from app.services.cleanup import cleanup_old_records, get_database_stats
 from app.jobs.daily_run import run as daily_run
-from app.middleware import APILoggingMiddleware
+from app.middleware import APILoggingMiddleware, InstallTrackingMiddleware
+from app.routers.auth import router as auth_router
 from app.utils.logger import logger
 from app.security.auth import verify_admin_key
 from app.legal_content import (
@@ -124,6 +125,14 @@ def terms_and_conditions_page():
 # Add API logging middleware for security and monitoring
 app.add_middleware(APILoggingMiddleware)
 
+# InstallTrackingMiddleware: added after APILoggingMiddleware so it runs as
+# the inner layer (closer to the route handler). Starlette stacks middleware
+# in LIFO order, meaning the last-added middleware is the first to run.
+app.add_middleware(InstallTrackingMiddleware)
+
+# ── Routers ────────────────────────────────────────────────────────────────
+app.include_router(auth_router)
+
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -195,7 +204,7 @@ def health():
     )
 
 @app.get("/fixtures/ingest")
-def ingest_todays_fixtures():
+def ingest_todays_fixtures(request: Request):
     """
     Trigger the daily data ingestion pipeline (competitions + matches only).
     
@@ -214,15 +223,33 @@ def ingest_todays_fixtures():
         - teams_updated: Number of team stats updated
         - note: Reminder that H2H is lazy-loaded
         - errors: List of any errors encountered
+        - user: Current anonymous/authenticated user snapshot
     """
+    from app.services.install_tracking import get_user
+
     try:
         today = date.today().isoformat()
         logger.info(f"Starting manual ingestion run for {today}")
-        
+
         results = daily_run()
-        
+
         total_matches = sum(results.get('matches_ingested', {}).values())
-        
+
+        # ── Build user snapshot for the response ─────────────────────────────
+        installation_id = request.headers.get("X-Install-Id", "").strip()
+        raw_user = get_user(installation_id) if installation_id else None
+        user_data = None
+        if raw_user:
+            user_data = {
+                "installation_id": raw_user.get("installation_id"),
+                "is_authenticated": raw_user.get("is_authenticated", False),
+                "fixtures_ingest_count": raw_user.get("fixtures_ingest_count", 0),
+                "total_api_calls": raw_user.get("total_api_calls", 0),
+                "app_version": raw_user.get("app_version"),
+                "email": raw_user.get("email"),
+                "name": raw_user.get("name"),
+            }
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -238,7 +265,8 @@ def ingest_todays_fixtures():
                     "predictions": results.get('predictions_generated', 0)
                 },
                 "details": results,
-                "errors": results.get('errors', [])
+                "errors": results.get('errors', []),
+                "user": user_data,
             }
         )
     except Exception as e:
