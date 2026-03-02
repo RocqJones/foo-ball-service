@@ -4,6 +4,9 @@ InstallTrackingMiddleware
 
 Intercepts every request and:
 
+0. Fully exempt routes (``/health``, ``/privacy``, ``/terms``) pass through
+   immediately — no header requirements, no DB calls.  This keeps health
+   probes and browser pages working with zero configuration.
 1. Requires ``X-Install-Id`` header → 400 if missing.
 2. Finds or creates the anonymous user document in MongoDB.
 3. Increments ``total_api_calls`` on every request.
@@ -46,6 +49,13 @@ from app.utils.logger import logger
 # Endpoint subject to the free-usage quota
 _TRACKED_INGEST_PATH = "/fixtures/ingest"
 
+# These must be reachable by infrastructure probes and browsers with no headers.
+_FULLY_EXEMPT_PATHS = (
+    "/health",
+    "/privacy",
+    "/terms",
+)
+
 # Routes that require X-Client-Id once the user is authenticated.
 # Auth endpoints themselves are excluded so sign-in is always reachable.
 _CLIENT_ID_EXEMPT_PREFIXES = (
@@ -58,6 +68,10 @@ class InstallTrackingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
+
+        # ── 0. Fully exempt routes (no headers, no DB) ───────────────────────
+        if any(path == p for p in _FULLY_EXEMPT_PATHS):
+            return await call_next(request)
 
         # ── 1. Extract installation ID ───────────────────────────────────────
         installation_id = request.headers.get("X-Install-Id", "").strip()
